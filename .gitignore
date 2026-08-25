@@ -1,0 +1,27 @@
+# Build output
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local config (machine-specific)
+local.properties
+
+# Logs & temp
+*.log
+*.tmp
+
+# APK artifacts (build outputs, not source)
+*.apk
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.kotlin/
+
+# OS
+Thumbs.db
+.DS_Store
