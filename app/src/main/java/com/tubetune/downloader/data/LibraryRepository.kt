@@ -37,6 +37,15 @@ class LibraryRepository(private val context: Context) {
         save()
     }
 
+    fun trackBy(videoId: String): Track? = _data.value.tracks.firstOrNull { it.videoId == videoId }
+
+    /** 更新既有曲目（例如下載完成後補上本地檔案資訊） */
+    fun updateTrack(track: Track) {
+        val d = _data.value
+        _data.value = d.copy(tracks = d.tracks.map { if (it.videoId == track.videoId) track else it })
+        save()
+    }
+
     fun removeTrack(videoId: String) {
         val d = _data.value
         _data.value = d.copy(tracks = d.tracks.filter { it.videoId != videoId })

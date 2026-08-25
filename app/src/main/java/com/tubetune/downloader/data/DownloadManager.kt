@@ -89,6 +89,25 @@ class DownloadManager(
         enqueue(listOf(SearchResult(videoId, title, uploader, duration, thumbnail)), folder)
     }
 
+    /** 從音樂庫觸發：下載尚未下載（無本地檔案）的曲目，完成後更新 library 記錄 */
+    fun enqueueTracks(tracks: List<Track>) {
+        val targets = tracks.filter { it.uri.isBlank() }
+        if (targets.isEmpty()) return
+        val newItems = targets.map { t ->
+            DownloadItem(
+                id = UUID.randomUUID().toString(),
+                videoId = t.videoId,
+                title = t.title,
+                uploader = t.artist,
+                thumbnailUrl = t.thumbnailUrl,
+                durationSeconds = t.durationSeconds,
+                folder = t.folder
+            )
+        }
+        _items.value = newItems + _items.value
+        pump()
+    }
+
     private fun pump() {
         if (busy) return
         val next = _items.value.lastOrNull { it.status == DownloadStatus.QUEUED }
@@ -162,20 +181,32 @@ class DownloadManager(
                 )
             }
             tmp.delete()
-            library.addTrack(
-                Track(
-                    videoId = item.videoId,
-                    title = item.title,
-                    artist = item.uploader,
-                    durationSeconds = item.durationSeconds,
-                    thumbnailUrl = item.thumbnailUrl,
-                    fileName = MediaSaver.sanitize(item.title) + "." + suffix,
-                    uri = savedUri,
-                    folder = item.folder.ifBlank { LibraryRepository.DEFAULT_FOLDER },
-                    sizeBytes = sizeBytes,
-                    downloadedAt = System.currentTimeMillis()
-                )
+            val existing = library.trackBy(item.videoId)
+            val base = Track(
+                videoId = item.videoId,
+                title = item.title,
+                artist = item.uploader,
+                durationSeconds = item.durationSeconds,
+                thumbnailUrl = item.thumbnailUrl,
+                fileName = MediaSaver.sanitize(item.title) + "." + suffix,
+                uri = savedUri,
+                folder = item.folder.ifBlank { LibraryRepository.DEFAULT_FOLDER },
+                sizeBytes = sizeBytes,
+                downloadedAt = System.currentTimeMillis(),
+                downloaded = true
             )
+            if (existing != null) {
+                // 已在資料夾（串流曲目）→ 保留原有標題等資訊，只補上下載檔案
+                library.updateTrack(base.copy(
+                    title = existing.title,
+                    artist = existing.artist,
+                    thumbnailUrl = existing.thumbnailUrl,
+                    durationSeconds = existing.durationSeconds,
+                    folder = existing.folder
+                ))
+            } else {
+                library.addTrack(base)
+            }
             update(item.copy(status = DownloadStatus.DONE, progress = 100))
         } catch (t: Throwable) {
             if (isCancelled(item.id)) {

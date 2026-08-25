@@ -1,7 +1,11 @@
 package com.tubetune.downloader.playback
 
-import android.media.AudioAttributes
-import android.media.MediaPlayer
+import android.net.Uri
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.tubetune.downloader.data.PreviewState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,118 +17,184 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 搜尋結果的音訊串流預覽播放器。
- * 與 PlayerController（本機音樂庫）分開：預覽播放的是 YouTube 串流，
- * 不需要排隊、循環功能，壞掉時只顯示錯誤。
+ * 搜尋結果的音訊串流預覽（與音樂庫共用 PlaybackService 的 ExoPlayer）。
+ * ExoPlayer + 瀏覽器 UA 才能正常播放 googlevideo 的直連串流；
+ * 使用 MediaPlayer 網路串流預覽會失敗。
  */
 class PreviewController {
 
-    private var player: MediaPlayer? = null
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var ticker: Job? = null
+    private var listening = false
 
     private val _state = MutableStateFlow<PreviewState?>(null)
     val state: StateFlow<PreviewState?> = _state.asStateFlow()
 
+    private val listener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) startTicker()
+            update()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val s = _state.value ?: return
+            when (playbackState) {
+                Player.STATE_READY -> update()
+                Player.STATE_ENDED -> {
+                    ticker?.cancel()
+                    _state.value = s.copy(isPlaying = false)
+                }
+                else -> {}
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            ticker?.cancel()
+            val s = _state.value
+            _state.value = s?.copy(isPlaying = false, error = errorMessage(error))
+        }
+    }
+
+    private fun attach(p: ExoPlayer) {
+        if (!listening) {
+            p.addListener(listener)
+            listening = true
+        }
+    }
+
     fun play(videoId: String, title: String, artist: String, thumbnail: String, url: String) {
-        stopInternal()
+        val p = PlaybackService.ensureStarted(PlaybackService.appContext ?: return) ?: run {
+            retryPlay(videoId, title, artist, thumbnail, url, 5)
+            return
+        }
+        attach(p)
         try {
-            val mp = MediaPlayer()
-            mp.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            p.stop()
+            p.clearMediaItems()
+            p.shuffleModeEnabled = false
+            p.repeatMode = Player.REPEAT_MODE_OFF
+            p.setMediaItem(
+                MediaItem.Builder()
+                    .setMediaId(videoId)
+                    .setUri(url)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(title)
+                            .setArtist(artist)
+                            .apply { if (thumbnail.isNotBlank()) setArtworkUri(Uri.parse(thumbnail)) }
+                            .build()
+                    )
                     .build()
             )
-            mp.setDataSource(url)
-            mp.setOnPreparedListener { p ->
-                p.start()
-                val s = _state.value
-                if (s != null) {
-                    _state.value = s.copy(
-                        isPlaying = true,
-                        durationMs = try { p.duration.toLong() } catch (t: Throwable) { 0L },
-                        error = null
-                    )
-                }
-                startTicker()
-            }
-            mp.setOnErrorListener { _, what, extra ->
-                ticker?.cancel()
-                val s = _state.value
-                _state.value = s?.copy(isPlaying = false, error = "預覽失敗（$what/$extra）")
-                true
-            }
-            mp.setOnCompletionListener {
-                ticker?.cancel()
-                val s = _state.value
-                _state.value = s?.copy(isPlaying = false)
-            }
-            mp.prepareAsync()
-            player = mp
-            _state.value = PreviewState(videoId, title, artist, thumbnail, false, 0, 0, null)
+            p.prepare()
+            p.play()
+            _state.value = PreviewState(videoId, title, artist, thumbnail, true, 0, 0, null)
+            startTicker()
         } catch (t: Throwable) {
-            releasePlayer()
             _state.value = PreviewState(videoId, title, artist, thumbnail, false, 0, 0, "預覽失敗：" + (t.message ?: t.javaClass.simpleName))
         }
     }
 
     fun fail(videoId: String, title: String, artist: String, thumbnail: String, message: String) {
-        stopInternal()
+        stop()
         _state.value = PreviewState(videoId, title, artist, thumbnail, false, 0, 0, message)
     }
 
     fun toggle() {
-        val p = player ?: return
+        val p = PlaybackService.playerHolder ?: return
         if (_state.value?.error != null) return
-        try {
-            if (p.isPlaying) p.pause() else {
-                p.start()
-                startTicker()
-            }
-            updatePosition()
-        } catch (t: Throwable) {}
+        if (p.isPlaying) p.pause() else {
+            if (p.playbackState == Player.STATE_ENDED) p.seekTo(0)
+            p.play()
+            startTicker()
+        }
+        update()
     }
 
     fun seekTo(ms: Long) {
-        try { player?.seekTo(ms.toInt()) } catch (t: Throwable) {}
-        updatePosition()
+        PlaybackService.playerHolder?.seekTo(ms)
+        update()
     }
 
     fun stop() {
-        stopInternal()
+        val p = PlaybackService.playerHolder
+        if (p != null) {
+            try {
+                p.stop()
+                p.clearMediaItems()
+            } catch (t: Throwable) {}
+        }
+        ticker?.cancel()
         _state.value = null
     }
 
-    private fun updatePosition() {
+    private fun retryPlay(videoId: String, title: String, artist: String, thumbnail: String, url: String, times: Int) {
+        scope.launch {
+            delay(200)
+            if (times > 0) play(videoId, title, artist, thumbnail, url, times - 1)
+            else fail(videoId, title, artist, thumbnail, "預覽失敗：播放器尚未就緒")
+        }
+    }
+
+    private fun play(videoId: String, title: String, artist: String, thumbnail: String, url: String, retry: Int) {
+        val p = PlaybackService.ensureStarted(PlaybackService.appContext ?: return) ?: run {
+            retryPlay(videoId, title, artist, thumbnail, url, retry)
+            return
+        }
+        attach(p)
+        try {
+            p.stop()
+            p.clearMediaItems()
+            p.repeatMode = Player.REPEAT_MODE_OFF
+            p.setMediaItem(
+                MediaItem.Builder()
+                    .setMediaId(videoId)
+                    .setUri(url)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(title)
+                            .setArtist(artist)
+                            .apply { if (thumbnail.isNotBlank()) setArtworkUri(Uri.parse(thumbnail)) }
+                            .build()
+                    )
+                    .build()
+            )
+            p.prepare()
+            p.play()
+            _state.value = PreviewState(videoId, title, artist, thumbnail, true, 0, 0, null)
+            startTicker()
+        } catch (t: Throwable) {
+            _state.value = PreviewState(videoId, title, artist, thumbnail, false, 0, 0, "預覽失敗：" + (t.message ?: t.javaClass.simpleName))
+        }
+    }
+
+    private fun update() {
+        val p = PlaybackService.playerHolder ?: return
         val s = _state.value ?: return
-        val p = player ?: return
-        val pos = try { p.currentPosition.toLong() } catch (t: Throwable) { 0L }
-        val dur = try { if (p.duration > 0) p.duration.toLong() else s.durationMs } catch (t: Throwable) { s.durationMs }
-        val playing = try { if (p.isPlaying) { startTicker(); true } else false } catch (t: Throwable) { false }
-        _state.value = s.copy(positionMs = pos, durationMs = dur, isPlaying = playing)
+        val pos = p.currentPosition.coerceAtLeast(0)
+        val dur = p.duration.takeIf { it > 0 } ?: 0L
+        _state.value = s.copy(positionMs = pos, durationMs = dur, isPlaying = p.isPlaying)
     }
 
     private fun startTicker() {
         if (ticker?.isActive == true) return
         ticker = scope.launch {
             while (true) {
-                updatePosition()
+                update()
                 delay(500)
             }
         }
     }
 
-    private fun stopInternal() {
-        ticker?.cancel()
-        ticker = null
-        releasePlayer()
-    }
-
-    private fun releasePlayer() {
-        try { player?.stop() } catch (t: Throwable) {}
-        try { player?.release() } catch (t: Throwable) {}
-        player = null
+    private fun errorMessage(e: PlaybackException): String {
+        val base = when {
+            e.errorCodeName?.contains("IO") == true -> "網路錯誤，無法載入串流"
+            e.errorCodeName?.contains("DRM") == true -> "受著作權保護，無法預覽"
+            e.message?.contains("403", ignoreCase = true) == true -> "YouTube 拒絕連線（403）"
+            e.message?.contains("429", ignoreCase = true) == true -> "YouTube 暫時限流，請稍後再試"
+            else -> e.message ?: "未知錯誤"
+        }
+        return base.take(100)
     }
 
     fun release() {

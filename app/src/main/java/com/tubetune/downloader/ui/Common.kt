@@ -105,7 +105,7 @@ fun FolderPickerDialog(
     var showCreate by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("選擇要存入的資料夾") },
+        title = { Text("選擇資料夾") },
         text = {
             Column {
                 FolderRow(LibraryRepository.DEFAULT_FOLDER, onPick)

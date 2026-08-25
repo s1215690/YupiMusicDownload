@@ -1,5 +1,8 @@
 package com.tubetune.downloader.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,7 +19,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,12 +34,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tubetune.downloader.AppViewModel
 import com.tubetune.downloader.data.Prefs
+import com.tubetune.downloader.playback.PlaybackService
 
 @Composable
 fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
     val context = LocalContext.current
     var quality by remember { mutableStateOf(Prefs.quality(context)) }
     var theme by remember { mutableStateOf(Prefs.theme(context)) }
+    var floating by remember { mutableStateOf(Prefs.floatingPlayer(context)) }
+    val hasOverlay = Settings.canDrawOverlays(context)
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
@@ -42,6 +50,67 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
         Text("設定", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
+        Text("懸浮播放視窗", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(8.dp))
+        Card {
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("迷你播放器", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "在任何 App 上方顯示可拖動的迷你播放視窗（封面、曲名、控制鍵）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = floating,
+                        onCheckedChange = { v ->
+                            floating = v
+                            Prefs.setFloatingPlayer(context, v)
+                            if (v && Settings.canDrawOverlays(context)) {
+                                try {
+                                    context.startService(
+                                        Intent(context, PlaybackService::class.java)
+                                    )
+                                } catch (t: Throwable) {
+                                }
+                            }
+                        }
+                    )
+                }
+                if (!hasOverlay) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "開啟後需要授予「顯示在其他應用程式上層」權限：",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    TextButton(onClick = {
+                        try {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:" + context.packageName)
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (t: Throwable) {
+                        }
+                    }) {
+                        Text("前往系統授權")
+                    }
+                } else if (floating) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "已授權。播放音樂時懸浮視窗即會出現，可拖動到任何位置。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
         Text("音訊品質", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(8.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

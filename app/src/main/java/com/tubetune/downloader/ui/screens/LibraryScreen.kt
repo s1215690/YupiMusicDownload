@@ -1,6 +1,8 @@
 package com.tubetune.downloader.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,33 +21,43 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.tubetune.downloader.AppViewModel
 import com.tubetune.downloader.data.LibraryRepository
+import com.tubetune.downloader.data.PlaySource
+import com.tubetune.downloader.data.Prefs
 import com.tubetune.downloader.data.Track
 import com.tubetune.downloader.ui.FolderManageDialog
 import com.tubetune.downloader.ui.FolderPickerDialog
@@ -56,6 +68,8 @@ import com.tubetune.downloader.ui.formatDuration
 fun LibraryScreen(vm: AppViewModel) {
     val libData by vm.library.data.collectAsState()
     val playerState by vm.player.state.collectAsState()
+    val streamBusy by vm.streamBusy.collectAsState()
+    val context = LocalContext.current
 
     var filter by remember { mutableStateOf("全部") }
     var menuTrack by remember { mutableStateOf<Track?>(null) }
@@ -63,6 +77,8 @@ fun LibraryScreen(vm: AppViewModel) {
     var folderDialog by remember { mutableStateOf(false) }
     var manageFolders by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf<Track?>(null) }
+    var selectionMode by remember { mutableStateOf(false) }
+    val selected = remember { mutableStateListOf<String>() }
 
     val filtered = if (filter == "全部") libData.tracks else libData.tracks.filter { it.folder == filter }
     val grouped: List<Pair<String, List<Track>>> = if (filter == "全部") {
@@ -75,6 +91,11 @@ fun LibraryScreen(vm: AppViewModel) {
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selectionMode) {
+                IconButton(onClick = { selectionMode = false; selected.clear() }) {
+                    Icon(Icons.Filled.Close, contentDescription = "取消多選")
+                }
+            }
             Column(Modifier.weight(1f)) {
                 Text("音樂庫", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
@@ -89,6 +110,23 @@ fun LibraryScreen(vm: AppViewModel) {
                 Text("新資料夾")
             }
             TextButton(onClick = { manageFolders = true }) { Text("管理") }
+        }
+
+        if (selectionMode) {
+            Surface(tonalElevation = 2.dp) {
+                Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "已選 " + selected.size + " 首",
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    TextButton(onClick = { selected.clear() }) { Text("全不選") }
+                    Button(
+                        onClick = { vm.downloadTracks(filtered.filter { selected.contains(it.videoId) }) },
+                        enabled = selected.isNotEmpty()
+                    ) { Text("下載到本地") }
+                }
+            }
         }
 
         Row(
@@ -114,7 +152,7 @@ fun LibraryScreen(vm: AppViewModel) {
                     Text("音樂庫是空的", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "下載的音樂會出現在這裡",
+                        "在「搜尋」頁按 ⬇ 把歌曲加入資料夾（串流），再決定要不要下載",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -125,30 +163,36 @@ fun LibraryScreen(vm: AppViewModel) {
                 if (filter == "全部") {
                     grouped.forEach { (folderName, tracks) ->
                         item(key = "header_" + folderName) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    folderName,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    tracks.size.toString() + " 首",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            FolderHeader(
+                                folderName = folderName,
+                                tracks = tracks,
+                                context = context,
+                                onToggleSource = { vm.togglePlaySource(folderName) },
+                                onDownloadAll = { vm.downloadFolder(folderName) }
+                            )
                         }
                         items(tracks, key = { "t_" + it.videoId }) { t ->
                             LibraryRow(
                                 track = t,
                                 isCurrent = playerState?.track?.videoId == t.videoId,
                                 isPlaying = playerState?.isPlaying == true,
-                                onPlay = { vm.playTrack(t, filtered) },
+                                selectionMode = selectionMode,
+                                selected = selected.contains(t.videoId),
+                                onClick = {
+                                    if (selectionMode) {
+                                        if (selected.contains(t.videoId)) selected.remove(t.videoId)
+                                        else selected.add(t.videoId)
+                                    } else {
+                                        vm.playTrack(t, filtered)
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!selectionMode) {
+                                        selectionMode = true
+                                        selected.clear()
+                                        selected.add(t.videoId)
+                                    }
+                                },
                                 onMenu = { menuTrack = t }
                             )
                         }
@@ -159,7 +203,23 @@ fun LibraryScreen(vm: AppViewModel) {
                             track = t,
                             isCurrent = playerState?.track?.videoId == t.videoId,
                             isPlaying = playerState?.isPlaying == true,
-                            onPlay = { vm.playTrack(t, filtered) },
+                            selectionMode = selectionMode,
+                            selected = selected.contains(t.videoId),
+                            onClick = {
+                                if (selectionMode) {
+                                    if (selected.contains(t.videoId)) selected.remove(t.videoId)
+                                    else selected.add(t.videoId)
+                                } else {
+                                    vm.playTrack(t, filtered)
+                                }
+                            },
+                            onLongClick = {
+                                if (!selectionMode) {
+                                    selectionMode = true
+                                    selected.clear()
+                                    selected.add(t.videoId)
+                                }
+                            },
                             onMenu = { menuTrack = t }
                         )
                     }
@@ -171,16 +231,26 @@ fun LibraryScreen(vm: AppViewModel) {
     menuTrack?.let { t ->
         Box {
             DropdownMenu(expanded = true, onDismissRequest = { menuTrack = null }) {
+                if (!t.downloaded) {
+                    DropdownMenuItem(
+                        text = { Text("下載到本地", color = MaterialTheme.colorScheme.primary) },
+                        onClick = { menuTrack = null; vm.downloadTracks(listOf(t)) }
+                    )
+                }
                 DropdownMenuItem(
-                    text = { Text("播放") },
-                    onClick = { menuTrack = null; vm.playTrack(t, filtered) }
+                    text = { Text("下載播放") },
+                    onClick = { menuTrack = null; vm.playTrack(t, filtered, PlaySource.DOWNLOAD) }
+                )
+                DropdownMenuItem(
+                    text = { Text("串流播放", color = MaterialTheme.colorScheme.primary) },
+                    onClick = { menuTrack = null; vm.playTrack(t, filtered, PlaySource.STREAM) }
                 )
                 DropdownMenuItem(
                     text = { Text("移動到資料夾") },
                     onClick = { menuTrack = null; moveTrack = t }
                 )
                 DropdownMenuItem(
-                    text = { Text("刪除") },
+                    text = { Text(if (t.downloaded) "刪除" else "從資料夾移除") },
                     onClick = { menuTrack = null; deleteConfirm = t }
                 )
             }
@@ -221,16 +291,65 @@ fun LibraryScreen(vm: AppViewModel) {
     deleteConfirm?.let { t ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { deleteConfirm = null },
-            title = { Text("刪除音樂？") },
-            text = { Text(t.title + "\n將從音樂庫移除，手機上的檔案也會一併刪除。") },
+            title = { Text(if (t.downloaded) "刪除音樂？" else "從資料夾移除？") },
+            text = {
+                Text(
+                    if (t.downloaded)
+                        t.title + "\n將從音樂庫移除，手機上的檔案也會一併刪除。"
+                    else
+                        t.title + "\n將從資料夾移除（不會刪除任何檔案）。"
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     vm.deleteTrack(t)
                     deleteConfirm = null
-                }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
+                }) { Text(if (t.downloaded) "刪除" else "移除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { deleteConfirm = null }) { Text("取消") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun FolderHeader(
+    folderName: String,
+    tracks: List<Track>,
+    context: android.content.Context,
+    onToggleSource: () -> Unit,
+    onDownloadAll: () -> Unit
+) {
+    val notDownloaded = tracks.count { it.uri.isBlank() }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            folderName,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            tracks.size.toString() + " 首" + if (notDownloaded > 0) "（" + notDownloaded + " 首串流）" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.weight(1f))
+        if (notDownloaded > 0) {
+            TextButton(onClick = onDownloadAll) { Text("全部下載", style = MaterialTheme.typography.labelSmall) }
+        }
+        FilterChip(
+            selected = Prefs.playSourceForFolder(context, folderName) == PlaySource.STREAM,
+            onClick = onToggleSource,
+            label = {
+                Text(
+                    if (Prefs.playSourceForFolder(context, folderName) == PlaySource.STREAM) "串流播放" else "下載播放",
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
         )
     }
@@ -261,18 +380,28 @@ private fun CreateFolderDialog(onConfirm: (String) -> Unit, onDismiss: () -> Uni
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LibraryRow(
     track: Track,
     isCurrent: Boolean,
     isPlaying: Boolean,
-    onPlay: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onMenu: () -> Unit
 ) {
     Card(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable(onClick = onPlay)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onClick() })
+            }
             AsyncImage(
                 model = track.thumbnailUrl,
                 contentDescription = null,
@@ -297,16 +426,28 @@ private fun LibraryRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                if (track.uri.isNotBlank()) Icons.Filled.CheckCircle
+                else Icons.Filled.Cloud,
+                contentDescription = if (track.uri.isNotBlank()) "已下載" else "串流",
+                modifier = Modifier.size(16.dp),
+                tint = if (track.uri.isNotBlank()) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
             if (isCurrent && isPlaying) {
-                Icon(Icons.Filled.GraphicEq, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(4.dp))
+                Icon(Icons.Filled.GraphicEq, null, tint = MaterialTheme.colorScheme.primary)
             }
+            Spacer(Modifier.width(6.dp))
             Text(
                 formatDuration(track.durationSeconds),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            IconButton(onClick = onMenu) { Icon(Icons.Filled.MoreVert, contentDescription = "更多") }
+            if (!selectionMode) {
+                IconButton(onClick = onMenu) { Icon(Icons.Filled.MoreVert, contentDescription = "更多") }
+            }
         }
     }
 }

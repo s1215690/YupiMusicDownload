@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/float_root"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="8dp"
+    android:background="@drawable/floating_card">
+
+    <ImageView
+        android:id="@+id/float_art"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:scaleType="centerCrop"
+        android:contentDescription="封面" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="8dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/float_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/float_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#AAFFFFFF"
+            android:textSize="12sp" />
+
+        <ProgressBar
+            android:id="@+id/float_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="1000"
+            android:progressTint="#FF1DB954"
+            android:progressBackgroundTint="#33FFFFFF"
+            android:layout_marginTop="2dp" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/float_prev"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@null"
+        android:src="@android:drawable/ic_media_previous"
+        android:contentDescription="上一首" />
+
+    <ImageButton
+        android:id="@+id/float_toggle"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="@null"
+        android:src="@android:drawable/ic_media_pause"
+        android:contentDescription="播放/暫停" />
+
+    <ImageButton
+        android:id="@+id/float_next"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@null"
+        android:src="@android:drawable/ic_media_next"
+        android:contentDescription="下一首" />
+
+    <ImageButton
+        android:id="@+id/float_close"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:background="@null"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:contentDescription="關閉"
+        android:alpha="0.7" />
+</LinearLayout>

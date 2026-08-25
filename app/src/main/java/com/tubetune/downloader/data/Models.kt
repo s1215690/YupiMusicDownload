@@ -7,10 +7,11 @@ data class Track(
     val durationSeconds: Long,
     val thumbnailUrl: String,
     val fileName: String,
-    val uri: String,
+    val uri: String,          // 空字串 = 尚未下載（純串流曲目）
     val folder: String,
     val sizeBytes: Long,
-    val downloadedAt: Long
+    val downloadedAt: Long,
+    val downloaded: Boolean = false
 )
 
 data class Folder(val name: String, val createdAt: Long)
@@ -49,6 +50,9 @@ data class PlayerState(
 
 /** 播放模式：順序 / 循環 / 隨機 / 單曲重複（每個資料夾各自記憶） */
 enum class PlayMode { NORMAL, REPEAT_ALL, SHUFFLE, REPEAT_ONE }
+
+/** 播放來源：下載的本地檔案 / YouTube 串流（每個資料夾各自記憶） */
+enum class PlaySource { DOWNLOAD, STREAM }
 
 data class PreviewState(
     val videoId: String,

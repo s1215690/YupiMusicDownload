@@ -70,7 +70,6 @@ fun SearchScreen(vm: AppViewModel) {
     val selected = remember { mutableStateListOf<String>() }
     var pending: List<SearchResult> by remember { mutableStateOf(emptyList()) }
     var showFolderPicker by remember { mutableStateOf(false) }
-    var previewTarget by remember { mutableStateOf<SearchResult?>(null) }
 
     val results by vm.searchResults.collectAsState()
     val searching by vm.searching.collectAsState()
@@ -127,7 +126,7 @@ fun SearchScreen(vm: AppViewModel) {
                     Button(onClick = {
                         pending = results.filter { selected.contains(it.videoId) }
                         showFolderPicker = true
-                    }) { Text("下載所選") }
+                    }) { Text("加入資料夾") }
                 }
             }
         }
@@ -160,7 +159,7 @@ fun SearchScreen(vm: AppViewModel) {
                         Text("輸入歌名或歌手開始搜尋", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "長按結果可多選，一次下載多首；點 ▶ 可預覽",
+                            "點封面/標題影片預覽、點 ▶ 串流播放、點 ⬇ 加入資料夾、長按多選",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -178,8 +177,8 @@ fun SearchScreen(vm: AppViewModel) {
                                 if (selectionMode) {
                                     if (isSelected) selected.remove(r.videoId) else selected.add(r.videoId)
                                 } else {
-                                    pending = listOf(r)
-                                    showFolderPicker = true
+                                    // 點封面/標題 → 影片預覽
+                                    vm.previewVideo(r)
                                 }
                             },
                             onLongClick = {
@@ -189,7 +188,11 @@ fun SearchScreen(vm: AppViewModel) {
                                     selected.add(r.videoId)
                                 }
                             },
-                            onPreview = { previewTarget = r }
+                            onPlay = { vm.previewAudio(r) },
+                            onDownload = {
+                                pending = listOf(r)
+                                showFolderPicker = true
+                            }
                         )
                     }
                     if (hasMore) {
@@ -212,36 +215,6 @@ fun SearchScreen(vm: AppViewModel) {
         }
     }
 
-    // 預覽方式選擇
-    val target = previewTarget
-    if (target != null) {
-        AlertDialog(
-            onDismissRequest = { previewTarget = null },
-            title = { Text("預覽方式") },
-            text = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(
-                        model = target.thumbnailUrl,
-                        contentDescription = null,
-                        modifier = Modifier.size(width = 80.dp, height = 46.dp).clip(RoundedCornerShape(8.dp))
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(target.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                        Text(target.uploader, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            },
-            confirmButton = {
-                Row {
-                    TextButton(onClick = { vm.previewAudio(target); previewTarget = null }) { Text("音訊預覽") }
-                    TextButton(onClick = { vm.previewVideo(target); previewTarget = null }) { Text("影片預覽") }
-                }
-            },
-            dismissButton = { TextButton(onClick = { previewTarget = null }) { Text("取消") } }
-        )
-    }
-
     // 影片預覽對話框
     val vp = videoPreview
     if (vp != null) {
@@ -254,7 +227,7 @@ fun SearchScreen(vm: AppViewModel) {
             onCreate = { vm.library.addFolder(it) },
             onPick = { folder ->
                 showFolderPicker = false
-                vm.downloadSelected(pending, folder)
+                vm.addToFolder(pending, folder)
                 pending = emptyList()
                 selectionMode = false
                 selected.clear()
@@ -341,7 +314,8 @@ private fun SearchRow(
     isResolving: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onPreview: () -> Unit
+    onPlay: () -> Unit,
+    onDownload: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -385,18 +359,18 @@ private fun SearchRow(
                 }
             }
             if (!selectionMode) {
-                IconButton(onClick = onPreview, enabled = !isResolving) {
+                IconButton(onClick = onPlay, enabled = !isResolving) {
                     if (isResolving) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(
                             Icons.Filled.PlayCircle,
-                            contentDescription = "預覽",
+                            contentDescription = "音訊串流",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
-                IconButton(onClick = onClick) {
+                IconButton(onClick = onDownload) {
                     Icon(
                         Icons.Filled.Download,
                         contentDescription = "下載",
