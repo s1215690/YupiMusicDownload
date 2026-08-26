@@ -173,9 +173,40 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                 )
             }
         }
+        Spacer(Modifier.height(24.dp))
+        Card {
+            Column(Modifier.padding(16.dp)) {
+                Text("關於", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
+                Text("TubeTune 音樂下載 v1.0", style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "作者：Keith Yu",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "原始碼（GitHub）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        try {
+                            context.startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    Uri.parse("https://github.com/s1215690/YupiMusicDownload")
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (t: Throwable) {
+                        }
+                    }
+                )
+            }
+        }
         Spacer(Modifier.height(16.dp))
         Text(
-            "TubeTune v1.0",
+            "© Keith Yu · TubeTune v1.0",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline
         )

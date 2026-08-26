@@ -37,7 +37,7 @@ fun AppRoot(vm: AppViewModel, onThemeChange: (String) -> Unit) {
     val playerState by vm.player.state.collectAsState()
     val openPlayer by vm.openPlayer.collectAsState()
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().threeFingerTap { vm.togglePlayback() }) {
         Scaffold(
             bottomBar = {
                 Column {

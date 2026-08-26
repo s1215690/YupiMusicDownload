@@ -13,6 +13,7 @@ import com.tubetune.downloader.data.SearchResult
 import com.tubetune.downloader.data.Track
 import com.tubetune.downloader.data.VideoPreview
 import com.tubetune.downloader.data.YoutubeService
+import com.tubetune.downloader.playback.KtvService
 import com.tubetune.downloader.playback.PlayerController
 import com.tubetune.downloader.playback.PreviewController
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,59 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val downloads = DownloadManager(app, library)
     val player = PlayerController(app)
     val preview = PreviewController()
+
+    /** App 回到前景時：讓 UI 與實際播放器狀態重新同步（背景回來後控制失效的修復） */
+    fun resync() {
+        player.resync()
+        preview.resync()
+    }
+
+    // ---- KTV 錄音 ----
+
+    val ktvRecording: StateFlow<Boolean> = KtvService.isRecording
+    val ktvElapsed: StateFlow<Int> = KtvService.elapsedSec
+    val ktvError: StateFlow<String?> = KtvService.error
+
+    init {
+        // 錄音完成 → 自動加入音樂庫「KTV 錄音」資料夾
+        viewModelScope.launch {
+            KtvService.savedTrack.collect { t ->
+                if (t != null) {
+                    library.addTrack(t)
+                    KtvService.savedTrack.value = null
+                }
+            }
+        }
+    }
+
+    /** 開始 KTV 錄音（只錄手機本體麥克風，不需任何畫面錄製授權） */
+    fun startKtv() {
+        KtvService.start(getApplication())
+    }
+
+    fun stopKtv() {
+        KtvService.stopRecording(getApplication())
+    }
+
+    /** 三指點選：切換播放/暫停（KTV 錄音中不回應，避免中斷正在錄的歌） */
+    fun togglePlayback() {
+        if (ktvRecording.value) return
+        player.toggle()
+    }
+
+    fun showKtvError(message: String) {
+        KtvService.error.value = message
+    }
+
+    fun clearKtvError() {
+        KtvService.error.value = null
+    }
+
+    override fun onCleared() {
+        player.release()
+        preview.release()
+        super.onCleared()
+    }
 
     private val _searchResults = MutableStateFlow<List<SearchResult>>(emptyList())
     val searchResults: StateFlow<List<SearchResult>> = _searchResults.asStateFlow()

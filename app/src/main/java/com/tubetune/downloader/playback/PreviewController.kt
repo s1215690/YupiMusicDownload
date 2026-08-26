@@ -168,6 +168,25 @@ class PreviewController {
         }
     }
 
+    /** 回到 App 前景時：若播放器尚有預覽曲目但介面沒有狀態，補上 */
+    fun resync() {
+        val p = PlaybackService.playerHolder ?: return
+        if (_state.value == null && p.mediaItemCount > 0) {
+            p.currentMediaItem?.let { item ->
+                _state.value = PreviewState(
+                    videoId = item.mediaId,
+                    title = item.mediaMetadata.title?.toString() ?: "",
+                    artist = item.mediaMetadata.artist?.toString() ?: "",
+                    thumbnailUrl = item.mediaMetadata.artworkUri?.toString() ?: "",
+                    isPlaying = p.isPlaying,
+                    positionMs = p.currentPosition.coerceAtLeast(0),
+                    durationMs = p.duration.takeIf { it > 0 } ?: 0L,
+                    error = null
+                )
+            }
+        }
+    }
+
     private fun update() {
         val p = PlaybackService.playerHolder ?: return
         val s = _state.value ?: return
@@ -197,8 +216,13 @@ class PreviewController {
         return base.take(100)
     }
 
+    /** ViewModel 銷毀時釋放 UI 資源；不停止播放（背景播放交給 service） */
     fun release() {
-        stop()
+        ticker?.cancel()
+        if (listening) {
+            PlaybackService.playerHolder?.removeListener(listener)
+            listening = false
+        }
         scope.coroutineContext[Job]?.cancel()
     }
 }

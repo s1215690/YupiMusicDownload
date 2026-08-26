@@ -17,13 +17,20 @@ class LibraryRepository(private val context: Context) {
     val data: StateFlow<LibraryData> = _data.asStateFlow()
 
     private fun load(): LibraryData {
-        return try {
+        val d = try {
             if (file.exists()) gson.fromJson(file.readText(), LibraryData::class.java)
                 ?: LibraryData(emptyList(), emptyList())
             else LibraryData(emptyList(), emptyList())
         } catch (t: Throwable) {
             LibraryData(emptyList(), emptyList())
         }
+        // 相容舊資料：曲目引用的資料夾若不在 folders 清單（例如 KTV 錄音），補建，否則「全部」檢視看不到
+        val missing = d.tracks.map { it.folder }
+            .filter { f -> f != DEFAULT_FOLDER }
+            .distinct()
+            .filter { f -> d.folders.none { it.name == f } }
+        return if (missing.isEmpty()) d
+        else d.copy(folders = d.folders + missing.map { Folder(it, System.currentTimeMillis()) })
     }
 
     private fun save() {
@@ -33,7 +40,11 @@ class LibraryRepository(private val context: Context) {
     fun addTrack(track: Track) {
         val d = _data.value
         if (d.tracks.any { it.videoId == track.videoId }) return
-        _data.value = d.copy(tracks = listOf(track) + d.tracks)
+        // 曲目所在的資料夾若不存在就補建，否則在「全部」檢視與資料夾分頁都會隐身
+        val folders = if (track.folder != DEFAULT_FOLDER && d.folders.none { it.name == track.folder })
+            d.folders + Folder(track.folder, System.currentTimeMillis())
+        else d.folders
+        _data.value = d.copy(tracks = listOf(track) + d.tracks, folders = folders)
         save()
     }
 

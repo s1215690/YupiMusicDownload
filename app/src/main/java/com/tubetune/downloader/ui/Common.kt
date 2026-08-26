@@ -36,7 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -201,4 +204,43 @@ fun FolderManageDialog(
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("關閉") } }
     )
+}
+
+/**
+ * 三指點選手勢：三指在 250ms 內同時落下、未大幅移動即全部抬起 → 觸發 [onTap]。
+ * 不消費事件，不影響其他按鈕/捲動操作。
+ */
+fun Modifier.threeFingerTap(onTap: () -> Unit): Modifier = this.pointerInput(Unit) {
+    awaitPointerEventScope {
+        val downs = HashMap<PointerId, Long>()
+        val startPos = HashMap<PointerId, Offset>()
+        var triple = false
+        while (true) {
+            val event = awaitPointerEvent()
+            for (c in event.changes) {
+                if (c.pressed && !c.previousPressed) {
+                    downs[c.id] = c.uptimeMillis
+                    startPos[c.id] = c.position
+                    downs.entries.removeAll { it.value < c.uptimeMillis - 200L }
+                    if (downs.size >= 3) {
+                        val t = downs.values
+                        if (t.max() - t.min() < 250L) triple = true
+                    }
+                } else if (!c.pressed) {
+                    downs.remove(c.id)
+                    startPos.remove(c.id)
+                }
+            }
+            if (triple) {
+                if (event.changes.any { c ->
+                        startPos[c.id]?.let { (c.position - it).getDistance() > 40f } == true
+                    }) {
+                    triple = false // 移太多，不算點選
+                } else if (downs.isEmpty()) {
+                    triple = false
+                    onTap()
+                }
+            }
+        }
+    }
 }

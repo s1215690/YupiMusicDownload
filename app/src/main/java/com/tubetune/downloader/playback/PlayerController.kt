@@ -87,7 +87,7 @@ class PlayerController(private val context: Context) {
     }
 
     private fun playInternal(track: Track, playlist: List<Track>, urls: Map<String, String>?) {
-        retrofit(3) { p ->
+        retrofit(15) { p ->
             try {
                 p.stop()
                 p.clearMediaItems()
@@ -188,13 +188,34 @@ class PlayerController(private val context: Context) {
         _state.value = null
     }
 
+    /** 回到 App 前景時呼叫：確保 service 存活、介面與播放器狀態同步 */
+    fun resync() {
+        val p = player()
+        if (p == null) {
+            PlaybackService.ensureStarted(context)
+            return
+        }
+        if (p.mediaItemCount > 0 && _state.value == null) {
+            p.currentMediaItem?.let { item ->
+                _state.value = PlayerState(
+                    track = item.toTrack(),
+                    isPlaying = p.isPlaying,
+                    positionMs = p.currentPosition.coerceAtLeast(0),
+                    durationMs = p.duration.takeIf { it > 0 } ?: 0L
+                )
+                if (p.isPlaying) startTicker()
+            }
+        }
+        update()
+    }
+
     private fun retrofit(times: Int, block: (ExoPlayer) -> Unit) {
         val p = player()
         if (p != null) {
             block(p)
         } else if (times > 0) {
             scope.launch {
-                delay(200)
+                delay(250)
                 retrofit(times - 1, block)
             }
         }
@@ -222,10 +243,17 @@ class PlayerController(private val context: Context) {
         }
     }
 
+    /**
+     * ViewModel 銷毀時釋放 UI 資源（listener、ticker）。
+     * 注意：**不停止播放** — 背景播放交給 PlaybackService 繼續；
+     * 之前在這裡 stop() 會把退出 App 後的背景音樂一起停掉（看起來像卡住）。
+     */
     fun release() {
-        stop()
+        ticker?.cancel()
+        ticker = null
         attached?.removeListener(playerListener)
         attached = null
+        scope.coroutineContext[Job]?.cancel()
     }
 
     private fun Track.toMediaItem(streamUri: String? = null): MediaItem = MediaItem.Builder()

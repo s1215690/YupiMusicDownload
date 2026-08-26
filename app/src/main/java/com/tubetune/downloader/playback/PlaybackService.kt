@@ -68,7 +68,9 @@ class PlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
+        // 只有在「完全沒有媒體內容」時才停止 service；
+        // 否則保留（例如使用者回到其他 App、稍後再回來繼續控制）
+        if (player == null || player.mediaItemCount == 0 || player.playbackState == Player.STATE_IDLE) {
             stopSelf()
         }
     }
@@ -77,9 +79,11 @@ class PlaybackService : MediaSessionService() {
         hideOverlay()
         playerHolder = null
         appContext = null
+        val p = mediaSession?.player
         mediaSession?.player?.removeListener(overlayTrigger)
         mediaSession?.release()
         mediaSession = null
+        try { p?.release() } catch (t: Throwable) {}
         super.onDestroy()
     }
 
@@ -96,6 +100,8 @@ class PlaybackService : MediaSessionService() {
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(DefaultDataSource.Factory(this, httpFactory))
             )
+            // 播放時持有 WakeLock：防止 CPU 休眠導致本地播放放到一半卡住
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -186,14 +192,18 @@ class PlaybackService : MediaSessionService() {
                     val dy = ev.rawY - downY
                     if (abs(dx) > 6 || abs(dy) > 6) dragging = true
                     if (dragging) {
-                        p.x = startX + dx.roundToInt()
-                        p.y = startY + dy.roundToInt()
-                        (getSystemService(WINDOW_SERVICE) as WindowManager).updateViewLayout(v, p)
+                        // 拖曳中只改 translation（純渲染執行緒操作、無 WMS binder 呼叫）：
+                        // 在觸控分派路徑內同步呼叫 updateViewLayout 是部分 ROM 上
+                        // 輸入卡死/死當的已知誘因
+                        v.translationX = dx
+                        v.translationY = dy
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!dragging) {
+                        v.translationX = 0f
+                        v.translationY = 0f
                         // 點擊：開啟主畫面
                         try {
                             startActivity(
@@ -203,10 +213,22 @@ class PlaybackService : MediaSessionService() {
                         } catch (t: Throwable) {
                         }
                     } else {
+                        // 放開時才一次提交視窗位置（單一 updateViewLayout）
+                        p.x = startX + (ev.rawX - downX).roundToInt()
+                        p.y = startY + (ev.rawY - downY).roundToInt()
+                        v.translationX = 0f
+                        v.translationY = 0f
+                        (getSystemService(WINDOW_SERVICE) as WindowManager).updateViewLayout(v, p)
                         Prefs.setFloatPos(this, p.x, p.y)
                     }
                     dragging = false
                     true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    v.translationX = 0f
+                    v.translationY = 0f
+                    dragging = false
+                    false
                 }
                 else -> false
             }

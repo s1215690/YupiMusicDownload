@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,17 +23,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tubetune.downloader.data.Prefs
 import com.tubetune.downloader.ui.AppRoot
 import com.tubetune.downloader.ui.theme.TubeTuneTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
 
+    private val vm: AppViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val vm: AppViewModel = viewModel()
             var themeOverride by remember { mutableStateOf<String?>(null) }
             TubeTuneTheme(
                 darkThemeOverride = when (themeOverride) {
@@ -48,6 +51,15 @@ class MainActivity : ComponentActivity() {
                     vm.handleSharedText(intent)
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 從背景回到前景：同步播放器狀態、確保控制有效
+        try {
+            vm.resync()
+        } catch (t: Throwable) {
         }
     }
 }
