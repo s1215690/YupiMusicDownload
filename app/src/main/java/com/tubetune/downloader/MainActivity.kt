@@ -1,6 +1,7 @@
 package com.tubetune.downloader
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tubetune.downloader.data.Prefs
+import com.tubetune.downloader.playback.PlaybackService
 import com.tubetune.downloader.ui.AppRoot
 import com.tubetune.downloader.ui.theme.TubeTuneTheme
 import java.io.File
@@ -59,6 +61,18 @@ class MainActivity : ComponentActivity() {
         // 從背景回到前景：同步播放器狀態、確保控制有效
         try {
             vm.resync()
+            // 設定頁剛切換過懸浮視窗、或剛從系統授權頁回來 → 立即套用
+            PlaybackService.serviceInstance?.refreshOverlayVisibility()
+        } catch (t: Throwable) {
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // launchMode=singleTask：App 已在背景執行時分享連結不會重跑 onCreate → 這裡補處理
+        setIntent(intent)
+        try {
+            vm.handleSharedText(intent)
         } catch (t: Throwable) {
         }
     }

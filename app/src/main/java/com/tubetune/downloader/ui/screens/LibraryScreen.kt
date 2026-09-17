@@ -82,7 +82,7 @@ fun LibraryScreen(vm: AppViewModel) {
 
     val filtered = if (filter == "全部") libData.tracks else libData.tracks.filter { it.folder == filter }
     val grouped: List<Pair<String, List<Track>>> = if (filter == "全部") {
-        val order = listOf(LibraryRepository.DEFAULT_FOLDER) + libData.folders.map { it.name }
+        val order = (listOf(LibraryRepository.DEFAULT_FOLDER) + libData.folders.map { it.name }).distinct()
         order.mapNotNull { f ->
             val ts = libData.tracks.filter { it.folder == f }
             if (ts.isEmpty()) null else f to ts

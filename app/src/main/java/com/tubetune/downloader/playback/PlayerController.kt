@@ -91,15 +91,27 @@ class PlayerController(private val context: Context) {
             try {
                 p.stop()
                 p.clearMediaItems()
-                _queue.value = playlist
-                _playMode.value = Prefs.playModeForFolder(context, track.folder)
+                // 播放範圍鎖定「點下去那首歌所在的資料夾」：
+                // 就算清單是「全部」跨資料夾的，也只播同一資料夾的歌
+                val folder = track.folder
+                val scoped = playlist.filter { it.folder == folder }
+                    .ifEmpty { playlist.filter { it.videoId == track.videoId } }
+                    .ifEmpty { listOf(track) }
+                _queue.value = scoped
+                _playMode.value = Prefs.playModeForFolder(context, folder)
                 val ordered = if (_playMode.value == PlayMode.SHUFFLE) {
-                    listOf(track) + playlist.filter { it.videoId != track.videoId }.shuffled()
+                    listOf(track) + scoped.filter { it.videoId != track.videoId }.shuffled()
                 } else {
-                    playlist.ifEmpty { listOf(track) }
+                    scoped
                 }
-                val startIdx = ordered.indexOfFirst { it.videoId == track.videoId }.coerceAtLeast(0)
-                p.setMediaItems(ordered.map { it.toMediaItem(urls?.get(it.videoId)) }, startIdx, 0L)
+                // 既拿不到串流 URL、又沒有本地檔案的曲目，硬放進佇列會在播到它時直接報錯；
+                // 這裡先剔除（點播的那首歌已優先解析，正常不會被剔除）。
+                val queue = if (urls == null) ordered else {
+                    ordered.filter { !urls[it.videoId].isNullOrBlank() || it.uri.isNotBlank() }
+                        .ifEmpty { ordered }
+                }
+                val startIdx = queue.indexOfFirst { it.videoId == track.videoId }.coerceAtLeast(0)
+                p.setMediaItems(queue.map { it.toMediaItem(urls?.get(it.videoId)) }, startIdx, 0L)
                 p.repeatMode = when (_playMode.value) {
                     PlayMode.REPEAT_ONE -> Player.REPEAT_MODE_ONE
                     PlayMode.REPEAT_ALL -> Player.REPEAT_MODE_ALL
@@ -133,28 +145,37 @@ class PlayerController(private val context: Context) {
         update()
     }
 
+    /**
+     * 下一首：依「資料夾播放順序」切到下一首歌。
+     * 與 repeatMode 解耦 —— 即使是單曲重複(重複)也能手動切下一首；
+     * 循環(循環)模式會在資料夾尾端回到第一首，順序(順序)播到最後則停止。
+     */
     fun next() {
         val p = player() ?: return
-        if (p.hasNextMediaItem()) {
-            p.seekToNextMediaItem()
-            p.play()
-        } else if (_playMode.value != PlayMode.REPEAT_ALL) {
-            stop()
-        } else {
-            p.seekTo(0, 0L)
-            p.play()
-        }
+        if (p.mediaItemCount <= 0) return
+        applySkip(+1)
     }
 
+    /**
+     * 上一首：依「資料夾播放順序」切到上一首歌。
+     * 與 repeatMode 解耦 —— 即使是單曲重複(重複)也能手動切上一首；
+     * 循環(循環)模式會在資料夾頭端回到最後一首，順序(順序)播到第一首則重新播放。
+     */
     fun prev() {
         val p = player() ?: return
-        if (p.hasPreviousMediaItem()) {
-            p.seekToPreviousMediaItem()
-            p.play()
-        } else {
-            p.seekTo(0, 0L)
-            p.play()
-        }
+        if (p.mediaItemCount <= 0) return
+        applySkip(-1)
+    }
+
+    /**
+     * 依資料夾播放順序 [delta](+1 下一首 / -1 上一首) 切換曲目。
+     * 委派給 [skipTrack]：直接以「播放順序 index」用 seekTo(index, 0) 跳轉，
+     * 不用 seekToNextMediaItem()/seekToPreviousMediaItem()（那兩支在 REPEAT_MODE_ONE 會鎖死成重複現曲）。
+     */
+    private fun applySkip(delta: Int) {
+        val p = player() ?: return
+        if (p.mediaItemCount <= 0) return
+        if (!skipTrack(p, delta)) stop() // 順序模式播到資料夾最後一首 → 停止
         update()
     }
 

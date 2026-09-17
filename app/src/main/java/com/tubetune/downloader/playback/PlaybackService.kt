@@ -36,6 +36,41 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
+ * 依播放順序切歌（delta = +1 下一首 / -1 上一首）。
+ *
+ * 直接以「播放順序 index」計算目標、用 seekTo(index, 0) 跳轉，**與 repeatMode 解耦**：
+ * 所以即使是「單曲重複」也能手動切上一/下一首（這是原本的 bug：
+ * seekToNextMediaItem()/seekToPreviousMediaItem() 在 REPEAT_MODE_ONE 會被鎖成重複現曲）。
+ *
+ * 規則：
+ *  - 下一首：到資料夾最後一首時，循環/單曲重複 → 回第一首；順序 → 停止（回 false）。
+ *  - 上一首：到第一首時，若已播 >3 秒 → 回本曲開頭；否則循環/單曲重複 → 回最後一首、順序 → 重播本曲。
+ *
+ * @return true = 已切到某首歌；false = 順序模式播到資料夾最後一首、呼叫端應停止。
+ */
+fun skipTrack(player: Player, delta: Int): Boolean {
+    val n = player.mediaItemCount
+    if (n <= 0) return false
+    val cur = player.currentMediaItemIndex
+    if (n <= 1) { player.seekTo(cur, 0L); player.play(); return true }
+    val mode = player.repeatMode
+    if (delta > 0) {
+        val next = cur + 1
+        if (next < n) { player.seekTo(next, 0L); player.play(); return true }
+        // 最後一首
+        if (mode == Player.REPEAT_MODE_OFF) return false // 順序：停止
+        player.seekTo(0, 0L); player.play(); return true // 循環 / 單曲重複：回第一首
+    } else {
+        if (cur == 0) {
+            if (player.currentPosition > 3000) { player.seekTo(0, 0L); player.play(); return true } // 回本曲開頭
+            if (mode == Player.REPEAT_MODE_OFF) { player.seekTo(0, 0L); player.play(); return true } // 順序：重播本曲
+            player.seekTo(n - 1, 0L); player.play(); return true // 循環 / 單曲重複：回最後一首
+        }
+        player.seekTo(cur - 1, 0L); player.play(); return true
+    }
+}
+
+/**
  * 全域播放服務（Media3 MediaSessionService）：
  * - 持有唯一的 ExoPlayer：音樂庫播放與音訊預覽共用
  * - 背景播放：播放時系統自動轉為 foreground service
@@ -62,6 +97,12 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player).build()
         playerHolder = player
         player.addListener(overlayTrigger)
+        serviceInstance = this
+    }
+
+    /** 設定頁切換「懸浮播放視窗」開關、或使用者從系統授權頁回來時呼叫：立即顯示/隱藏 */
+    fun refreshOverlayVisibility() {
+        if (overlayEnabled()) maybeShowOverlay() else hideOverlay()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
@@ -77,6 +118,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         hideOverlay()
+        serviceInstance = null
         playerHolder = null
         appContext = null
         val p = mediaSession?.player
@@ -235,7 +277,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         view.findViewById<ImageButton>(R.id.float_prev).setOnClickListener {
-            if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem()
+            // 用 skipTrack：依播放順序切歌，與 repeatMode 解耦（單曲重複也能切上一首）
+            if (!skipTrack(player, -1)) { player.stop(); player.clearMediaItems() }
             updateOverlay()
         }
         view.findViewById<ImageButton>(R.id.float_toggle).setOnClickListener {
@@ -243,7 +286,8 @@ class PlaybackService : MediaSessionService() {
             updateOverlay()
         }
         view.findViewById<ImageButton>(R.id.float_next).setOnClickListener {
-            if (player.hasNextMediaItem()) player.seekToNextMediaItem()
+            // 順序模式播到資料夾最後一首 → skipTrack 回 false → 停止並隱藏
+            if (!skipTrack(player, +1)) { player.stop(); player.clearMediaItems() }
             updateOverlay()
         }
         view.findViewById<ImageButton>(R.id.float_close).setOnClickListener {
@@ -338,6 +382,11 @@ class PlaybackService : MediaSessionService() {
         /** 進程內 application context（service 建立後註冊） */
         @Volatile
         var appContext: Context? = null
+            private set
+
+        /** 目前活著的 service 實例（UI 與 service 同進程；供設定頁即時開關懸浮視窗） */
+        @Volatile
+        var serviceInstance: PlaybackService? = null
             private set
 
         /** 確保 service 已啟動並回傳 player（可能尚在初始化，可稍後重試） */

@@ -59,9 +59,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 開始 KTV 錄音（只錄手機本體麥克風，不需任何畫面錄製授權） */
+    /** 開始 KTV 錄音（只錄手機本體麥克風，不需任何畫面錄製授權）；錄音檔以目前播放的歌曲名命名 */
     fun startKtv() {
-        KtvService.start(getApplication())
+        KtvService.start(getApplication(), player.state.value?.track?.title.orEmpty())
     }
 
     fun stopKtv() {
@@ -218,7 +218,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _streamBusy.value = true
         viewModelScope.launch {
             try {
-                val urls = withContext(Dispatchers.IO) { resolveStreamUrls(playlist, forceStream) }
+                // 點播的那首歌一定排最前：解析清單有 60 首上限，清單一長就保證它拿得到 URL
+                val queueOrder = listOf(track) + playlist.filter { it.videoId != track.videoId }
+                val urls = withContext(Dispatchers.IO) { resolveStreamUrls(queueOrder, forceStream) }
                 player.playStreaming(track, playlist, urls)
                 openPlayerScreen()
             } catch (t: Throwable) {

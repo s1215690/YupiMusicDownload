@@ -113,12 +113,13 @@ fun VideoPreviewDialog(preview: VideoPreview, onDismiss: () -> Unit) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            this.player = player
-                            setFullscreenButtonClickListener {
-                                fullscreen = false
-                            }
+                    factory = { ctx -> PlayerView(ctx) },
+                    update = { view ->
+                        // factory 只會在建構時跑一次，而播放器是在 DisposableEffect 之後才建立；
+                        // 在 update 掛 player 才能保證一定接得上（否則第一次開預覽會黑屏）。
+                        view.player = player
+                        view.setFullscreenButtonClickListener {
+                            fullscreen = false
                         }
                     }
                 )
@@ -177,12 +178,11 @@ fun VideoPreviewDialog(preview: VideoPreview, onDismiss: () -> Unit) {
                     ) {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
-                            factory = { ctx ->
-                                PlayerView(ctx).apply {
-                                    this.player = player
-                                    setFullscreenButtonClickListener {
-                                        fullscreen = true
-                                    }
+                            factory = { ctx -> PlayerView(ctx) },
+                            update = { view ->
+                                view.player = player
+                                view.setFullscreenButtonClickListener {
+                                    fullscreen = true
                                 }
                             }
                         )

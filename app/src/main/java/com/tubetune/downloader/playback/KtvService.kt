@@ -44,6 +44,9 @@ class KtvService : Service() {
     @Volatile private var recording = false
     private var micFile: File? = null
     private var startAt = 0L
+
+    /** 這次錄音的歌曲名（開始錄音時由 UI 傳入；沒有就退回時間戳命名） */
+    private var songTitle = ""
     private val handler = Handler(Looper.getMainLooper())
 
     private val tick = object : Runnable {
@@ -69,7 +72,10 @@ class KtvService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                val notif = buildNotification("KTV 錄音中")
+                songTitle = intent.getStringExtra(EXTRA_TITLE)?.trim().orEmpty()
+                val notif = buildNotification(
+                    if (songTitle.isNotEmpty()) "正在錄：" + songTitle else "KTV 錄音中"
+                )
                 if (Build.VERSION.SDK_INT >= 30) {
                     ServiceCompat.startForeground(
                         this, NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
@@ -89,6 +95,7 @@ class KtvService : Service() {
 
     private fun begin() {
         try {
+            error.value = null
             val minBuf = AudioRecord.getMinBufferSize(
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             ).coerceAtLeast(8192)
@@ -198,8 +205,11 @@ class KtvService : Service() {
             val wav = micToWav()
             micFile?.delete()
             if (wav != null && wav.length() > 44) {
-                val stamp = SimpleDateFormat("MMdd-HHmm", Locale.US).format(Date(startAt))
-                val title = "KTV " + stamp
+                // 檔名／曲名以歌曲名為主；沒有歌曲資訊（理論上不會）時退回「KTV 月日-時間」
+                val title = if (songTitle.isNotEmpty()) songTitle else {
+                    val stamp = SimpleDateFormat("MMdd-HHmm", Locale.US).format(Date(startAt))
+                    "KTV " + stamp
+                }
                 val size = wav.length()
                 val uri = MediaSaver.saveAudio(
                     this, wav, KTV_FOLDER, title, "KTV 錄音",
@@ -330,6 +340,7 @@ class KtvService : Service() {
         private const val NOTIF_ID = 2001
         const val ACTION_START = "com.tubetune.downloader.KTV_START"
         const val ACTION_STOP = "com.tubetune.downloader.KTV_STOP"
+        const val EXTRA_TITLE = "ktv_song_title"
         const val KTV_FOLDER = "KTV 錄音"
         private const val SAMPLE_RATE = 48000
         private const val MIC_GAIN = 1.15
@@ -339,8 +350,10 @@ class KtvService : Service() {
         val error = MutableStateFlow<String?>(null)
         val savedTrack = MutableStateFlow<Track?>(null)
 
-        fun start(context: Context) {
-            val i = Intent(context, KtvService::class.java).setAction(ACTION_START)
+        fun start(context: Context, songTitle: String) {
+            val i = Intent(context, KtvService::class.java)
+                .setAction(ACTION_START)
+                .putExtra(EXTRA_TITLE, songTitle)
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
         }
 

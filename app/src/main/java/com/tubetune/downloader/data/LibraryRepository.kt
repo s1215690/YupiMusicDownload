@@ -71,14 +71,15 @@ class LibraryRepository(private val context: Context) {
 
     fun addFolder(name: String) {
         val d = _data.value
-        if (name.isBlank() || d.folders.any { it.name == name }) return
+        // 「未分類」是內建預設資料夾：不可新增/改名成它，否則「全部」檢視會出現兩個同名群組
+        if (name.isBlank() || name.trim() == DEFAULT_FOLDER || d.folders.any { it.name == name }) return
         _data.value = d.copy(folders = d.folders + Folder(name.trim(), System.currentTimeMillis()))
         save()
     }
 
     fun renameFolder(old: String, new: String) {
         val d = _data.value
-        if (new.isBlank() || d.folders.any { it.name == new }) return
+        if (new.isBlank() || new.trim() == DEFAULT_FOLDER || d.folders.any { it.name == new }) return
         _data.value = d.copy(
             folders = d.folders.map { if (it.name == old) it.copy(name = new.trim()) else it },
             tracks = d.tracks.map { if (it.folder == old) it.copy(folder = new.trim()) else it }
@@ -87,6 +88,7 @@ class LibraryRepository(private val context: Context) {
     }
 
     fun deleteFolder(name: String) {
+        if (name == DEFAULT_FOLDER) return
         val d = _data.value
         _data.value = d.copy(
             folders = d.folders.filter { it.name != name },

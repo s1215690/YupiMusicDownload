@@ -26,14 +26,11 @@ class WidgetProvider : AppWidgetProvider() {
         val player = PlaybackService.playerHolder ?: return
         when (intent.action) {
             ACTION_TOGGLE -> if (player.isPlaying) player.pause() else player.play()
-            ACTION_NEXT -> if (player.hasNextMediaItem()) player.seekToNextMediaItem()
-            ACTION_PREV -> {
-                if (player.hasPreviousMediaItem()) {
-                    player.seekToPreviousMediaItem()
-                } else {
-                    player.seekTo(0, 0L)
-                }
-            }
+            // 和懸浮視窗同一套邏輯：用 skipTrack 依播放順序切歌。
+            // 原本的 seekToNextMediaItem()/seekToPreviousMediaItem() 在單曲重複模式會被
+            // 鎖成「重複現曲」→ 桌面小工具按了沒反應。
+            ACTION_NEXT -> if (!skipTrack(player, +1)) { player.stop(); player.clearMediaItems() }
+            ACTION_PREV -> if (!skipTrack(player, -1)) { player.stop(); player.clearMediaItems() }
         }
         WidgetProvider.update(context)
     }

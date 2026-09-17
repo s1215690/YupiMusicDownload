@@ -72,7 +72,17 @@ object MediaSaver {
         val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
         val dir = File(musicDir, "TubeTune/" + safeFolder)
         if (!dir.exists()) dir.mkdirs()
-        val dest = File(dir, fileName)
+        var dest = File(dir, fileName)
+        // API < 29 沒有 MediaStore 的自動改名：同名檔案改成「名 (2).ext」，避免覆蓋先前的檔案/錄音
+        if (dest.exists()) {
+            val base = fileName.substringBeforeLast('.', fileName)
+            val ext = fileName.substringAfterLast('.', "")
+            var i = 2
+            while (dest.exists()) {
+                dest = File(dir, if (ext.isEmpty()) "$base ($i)" else "$base ($i).$ext")
+                i++
+            }
+        }
         FileInputStream(source).use { input ->
             dest.outputStream().use { output -> input.copyTo(output) }
         }

@@ -59,6 +59,7 @@ class DownloadManager(
     val activeCount: StateFlow<Int> = _activeCount.asStateFlow()
 
     private var busy = false
+    private val pumpLock = Any()
 
     fun enqueue(results: List<SearchResult>, folder: String) {
         if (results.isEmpty()) return
@@ -109,18 +110,25 @@ class DownloadManager(
     }
 
     private fun pump() {
-        if (busy) return
-        val next = _items.value.lastOrNull { it.status == DownloadStatus.QUEUED }
-        if (next == null) {
-            _activeCount.value = 0
-            return
+        // enqueue（主執行緒）與下載完成（IO 執行緒）都會呼叫 pump()，
+        // 用鎖擋住競態：不然可能同時放行兩個任務、平行下載
+        val next: DownloadItem
+        synchronized(pumpLock) {
+            if (busy) return
+            next = _items.value.lastOrNull { it.status == DownloadStatus.QUEUED } ?: run {
+                _activeCount.value = 0
+                return
+            }
+            busy = true
         }
-        busy = true
         _activeCount.value = 1
         scope.launch {
-            process(next)
-            busy = false
-            pump()
+            try {
+                process(next)
+            } finally {
+                synchronized(pumpLock) { busy = false }
+                pump()
+            }
         }
     }
 
@@ -213,6 +221,7 @@ class DownloadManager(
                 tmp.delete()
                 return
             }
+            tmp.delete() // 失敗的殘檔不要留在 cache
             update(item.copy(status = DownloadStatus.FAILED, error = friendlyError(t)))
         }
     }

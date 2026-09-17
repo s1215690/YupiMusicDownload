@@ -76,6 +76,8 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                                 } catch (t: Throwable) {
                                 }
                             }
+                            // 立即讓懸浮視窗出現／消失（不用等下一首歌或重新開 App）
+                            PlaybackService.serviceInstance?.refreshOverlayVisibility()
                         }
                     )
                 }
@@ -178,7 +180,7 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
             Column(Modifier.padding(16.dp)) {
                 Text("關於", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(8.dp))
-                Text("TubeTune 音樂下載 v1.0", style = MaterialTheme.typography.bodyLarge)
+                Text("TubeTune 音樂下載 v1.1", style = MaterialTheme.typography.bodyLarge)
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "作者：Keith Yu",
@@ -206,7 +208,7 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
         }
         Spacer(Modifier.height(16.dp))
         Text(
-            "© Keith Yu · TubeTune v1.0",
+            "© Keith Yu · TubeTune v1.1",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline
         )
