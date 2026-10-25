@@ -110,6 +110,10 @@ object Gradients {
         listOf(BrandViolet.copy(alpha = alpha), BrandPink.copy(alpha = alpha))
     )
 
+    /** 不透明版：封面佔位圖用（半透明會令下面的陰影透出來，出現「內框」） */
+    val solid: Brush
+        get() = Brush.linearGradient(listOf(Color(0xFF7C5CFF), Color(0xFFE0508F)))
+
     @Composable
     fun hero(): Brush = Brush.verticalGradient(
         listOf(

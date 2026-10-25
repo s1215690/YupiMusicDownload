@@ -97,7 +97,13 @@ fun PlayerScreen(vm: AppViewModel) {
     val pos = if (dragging) dragValue.toLong() else s.positionMs
     val maxMs = s.durationMs.coerceAtLeast(1L)
 
-    Box(Modifier.fillMaxSize().background(Gradients.hero())) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            // 先鋪一層不透明底色：漸層頂部是半透明的，否則下面（音樂庫）會透出來
+            .background(MaterialTheme.colorScheme.background)
+            .background(Gradients.hero())
+    ) {
         Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp)) {
             // ---- 頂欄 ----
             Row(
@@ -198,16 +204,18 @@ fun PlayerScreen(vm: AppViewModel) {
                         .shadow(26.dp, RoundedCornerShape(28.dp))
                 ) {
                     Cover(s.track.thumbnailUrl, Modifier.fillMaxSize(), corner = 28)
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(28.dp))
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.18f))
+                    if (s.track.thumbnailUrl.isNotBlank()) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.18f))
+                                    )
                                 )
-                            )
-                    )
+                        )
+                    }
                 }
             }
 

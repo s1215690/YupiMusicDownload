@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -82,12 +84,24 @@ fun formatBytes(bytes: Long): String {
 fun Cover(
     url: String,
     modifier: Modifier = Modifier,
-    corner: Int = 14
+    corner: Int = 14,
+    showPlaceholderIcon: Boolean = true
 ) {
     val shape = RoundedCornerShape(corner.dp)
     Box(modifier.clip(shape)) {
-        Box(Modifier.matchParentSize().background(Gradients.soft(0.35f)))
-        if (url.isNotBlank()) {
+        if (url.isBlank()) {
+            // 沒有封面：用不透明品牌漸層 + 音符（半透明會透出陰影，形成「內框」）
+            Box(Modifier.matchParentSize().background(Gradients.solid))
+            if (showPlaceholderIcon) {
+                Icon(
+                    Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.Center).fillMaxSize(0.4f),
+                    tint = Color.White.copy(alpha = 0.9f)
+                )
+            }
+        } else {
+            Box(Modifier.matchParentSize().background(Gradients.soft(0.35f)))
             AsyncImage(
                 model = url,
                 contentDescription = null,
