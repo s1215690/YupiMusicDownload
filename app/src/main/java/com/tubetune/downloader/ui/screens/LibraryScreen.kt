@@ -1,5 +1,10 @@
 package com.tubetune.downloader.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -28,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
@@ -35,6 +41,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -57,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +89,10 @@ import com.tubetune.downloader.ui.GradientCircleButton
 import com.tubetune.downloader.ui.cardBorder
 import com.tubetune.downloader.ui.formatBytes
 import com.tubetune.downloader.ui.formatDuration
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val ACTIVE = setOf(
     DownloadStatus.QUEUED, DownloadStatus.RESOLVING, DownloadStatus.DOWNLOADING,
@@ -102,6 +114,41 @@ fun LibraryScreen(vm: AppViewModel) {
     var deleteConfirm by remember { mutableStateOf<Track?>(null) }
     var selectionMode by remember { mutableStateOf(false) }
     val selected = remember { mutableStateListOf<String>() }
+    var scanMsg by remember { mutableStateOf<String?>(null) }
+    var scanning by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    val audioPermission = if (Build.VERSION.SDK_INT >= 33)
+        Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            scanning = true
+            scope.launch {
+                val n = withContext(Dispatchers.IO) { vm.library.importLocalFiles() }
+                scanning = false
+                scanMsg = if (n > 0) "已加入 " + n + " 首歌曲" else "沒有找到新歌曲"
+            }
+        } else {
+            scanMsg = "需要「音樂和音訊」權限才能掃描本機歌曲"
+        }
+    }
+    // 掃描手機上 Music/TubeTune 既有檔案，重建索引（重裝 App 後把歌救回來）
+    val requestScan: () -> Unit = {
+        val granted = ContextCompat.checkSelfPermission(context, audioPermission) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            scanning = true
+            scope.launch {
+                val n = withContext(Dispatchers.IO) { vm.library.importLocalFiles() }
+                scanning = false
+                scanMsg = if (n > 0) "已加入 " + n + " 首歌曲" else "沒有找到新歌曲"
+            }
+        } else {
+            permissionLauncher.launch(audioPermission)
+        }
+    }
 
     val defaultHasTracks = libData.tracks.any { it.folder == LibraryRepository.DEFAULT_FOLDER }
     val folderNames = buildList {
@@ -146,6 +193,10 @@ fun LibraryScreen(vm: AppViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            IconButton(onClick = { requestScan() }, enabled = !scanning) {
+                if (scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Filled.Refresh, contentDescription = "掃描本機歌曲", Modifier.size(21.dp))
+            }
             IconButton(onClick = { folderDialog = true }) {
                 Icon(Icons.Filled.Add, contentDescription = "新資料夾", Modifier.size(22.dp))
             }
@@ -173,6 +224,30 @@ fun LibraryScreen(vm: AppViewModel) {
                     selectionMode = false
                     selected.clear()
                 }
+            }
+        }
+
+        scanMsg?.let { msg ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                    .clickable { scanMsg = null }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    msg,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(
+                    Icons.Filled.Close, contentDescription = "關閉", Modifier.size(15.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
 
@@ -212,8 +287,14 @@ fun LibraryScreen(vm: AppViewModel) {
                 libData.tracks.isEmpty() && folderNames.isEmpty() -> EmptyState(
                     Icons.Filled.LibraryMusic,
                     "音樂庫是空的",
-                    "在「搜尋」頁把歌曲加入資料夾，再回來一鍵下載成 MP3"
-                )
+                    "如果手機 Music/TubeTune 內已有歌曲（例如重裝過 App），按下面掃描即可找回"
+                ) {
+                    Button(onClick = { requestScan() }, shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("掃描手機上已下載的歌曲")
+                    }
+                }
 
                 folder == null -> FolderOverview(
                     folderNames = folderNames,

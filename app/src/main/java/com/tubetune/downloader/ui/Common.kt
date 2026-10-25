@@ -420,7 +420,8 @@ fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier) {
 fun EmptyState(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
-    hint: String
+    hint: String,
+    action: (@Composable () -> Unit)? = null
 ) {
     Box(Modifier.fillMaxWidth().padding(top = 80.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -449,6 +450,10 @@ fun EmptyState(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 40.dp)
             )
+            if (action != null) {
+                Spacer(Modifier.height(18.dp))
+                action()
+            }
         }
     }
 }

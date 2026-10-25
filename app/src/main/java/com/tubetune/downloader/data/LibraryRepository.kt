@@ -1,6 +1,9 @@
 package com.tubetune.downloader.data
 
+import android.content.ContentUris
 import android.content.Context
+import android.os.Build
+import android.provider.MediaStore
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -95,6 +98,113 @@ class LibraryRepository(private val context: Context) {
             tracks = d.tracks.map { if (it.folder == name) it.copy(folder = DEFAULT_FOLDER) else it }
         )
         save()
+    }
+
+    /**
+     * 掃描手機上 Music/TubeTune 已存在的音訊檔，把缺失的索引補回音樂庫。
+     *
+     * 用途：重裝 App／清除資料／換機之後，檔案仍然在，但 library.json 已經沒有了，
+     * 音樂庫會變成空的。這個方法用 MediaStore 把檔案找回來（含資料夾、時長、大小），
+     * 已存在的曲目（同 uri 或同資料夾同檔名）不會重複加入。
+     *
+     * @return 實際新加入的曲目數
+     */
+    fun importLocalFiles(): Int {
+        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.MIME_TYPE,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.RELATIVE_PATH
+            else MediaStore.Audio.Media.DATA
+        )
+        val selection: String
+        val args: Array<String>
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            selection = MediaStore.Audio.Media.RELATIVE_PATH + " LIKE ?"
+            args = arrayOf("Music/TubeTune/%")
+        } else {
+            selection = MediaStore.Audio.Media.DATA + " LIKE ?"
+            args = arrayOf("%/Music/TubeTune/%")
+        }
+
+        val found = ArrayList<Track>()
+        try {
+            context.contentResolver.query(collection, projection, selection, args, null)?.use { c ->
+                val iId = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val iName = c.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
+                val iTitle = c.getColumnIndex(MediaStore.Audio.Media.TITLE)
+                val iArtist = c.getColumnIndex(MediaStore.Audio.Media.ARTIST)
+                val iDur = c.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                val iSize = c.getColumnIndex(MediaStore.Audio.Media.SIZE)
+                val iAdded = c.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+                val iPath = c.getColumnIndex(projection[8])
+                while (c.moveToNext()) {
+                    val mediaId = c.getLong(iId)
+                    val name = if (iName >= 0) c.getString(iName).orEmpty() else ""
+                    if (name.isBlank()) continue
+                    val path = if (iPath >= 0) c.getString(iPath).orEmpty() else ""
+                    // 只收 Music/TubeTune/<資料夾>/ 底下的檔案（備份資料夾唔會被收）
+                    val rel = if (path.startsWith("/")) {
+                        path.substringAfter("/Music/TubeTune/", "")
+                    } else {
+                        path.removePrefix("Music/TubeTune/")
+                    }
+                    val folder = rel.substringBefore('/', "").ifBlank { DEFAULT_FOLDER }
+                    if (path.isNotBlank() && !path.contains("Music/TubeTune/")) continue
+                    var title = if (iTitle >= 0) c.getString(iTitle).orEmpty() else ""
+                    if (title.isBlank()) title = name.substringBeforeLast('.', name)
+                    var artist = if (iArtist >= 0) c.getString(iArtist).orEmpty() else ""
+                    if (artist.isBlank() || artist == "<unknown>") artist = "未知歌手"
+                    val dur = if (iDur >= 0) c.getLong(iDur) else 0L
+                    val size = if (iSize >= 0) c.getLong(iSize) else 0L
+                    val added = if (iAdded >= 0) c.getLong(iAdded) * 1000L else 0L
+                    found.add(
+                        Track(
+                            videoId = "local_" + mediaId,
+                            title = title,
+                            artist = artist,
+                            durationSeconds = dur / 1000L,
+                            thumbnailUrl = "",
+                            fileName = name,
+                            uri = ContentUris.withAppendedId(collection, mediaId).toString(),
+                            folder = folder,
+                            sizeBytes = size,
+                            downloadedAt = added,
+                            downloaded = true
+                        )
+                    )
+                }
+            }
+        } catch (t: Throwable) {
+            return 0
+        }
+
+        if (found.isEmpty()) return 0
+        val d = _data.value
+        val newTracks = ArrayList<Track>()
+        val newFolders = ArrayList(d.folders)
+        found.forEach { t ->
+            val dup = d.tracks.any { it.uri == t.uri }
+                || d.tracks.any { it.folder == t.folder && it.fileName == t.fileName }
+                || newTracks.any { it.uri == t.uri || (it.folder == t.folder && it.fileName == t.fileName) }
+            if (!dup) {
+                newTracks.add(t)
+                if (t.folder != DEFAULT_FOLDER && newFolders.none { it.name == t.folder }) {
+                    newFolders.add(Folder(t.folder, System.currentTimeMillis()))
+                }
+            }
+        }
+        if (newTracks.isNotEmpty()) {
+            _data.value = d.copy(tracks = d.tracks + newTracks, folders = newFolders)
+            save()
+        }
+        return newTracks.size
     }
 
     companion object {
