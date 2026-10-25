@@ -11,8 +11,8 @@ android {
         applicationId = "com.tubetune.downloader"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     buildTypes {
@@ -59,6 +59,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+    // 純 Java 版 LAME：把下載的音訊轉成真正的 MP3（無需 NDK）
+    implementation("de.sciss:jump3r:1.0.5")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")

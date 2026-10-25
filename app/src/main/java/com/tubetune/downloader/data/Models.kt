@@ -37,7 +37,7 @@ data class DownloadItem(
     var error: String? = null
 )
 
-enum class DownloadStatus { QUEUED, RESOLVING, DOWNLOADING, SAVING, DONE, FAILED, CANCELLED }
+enum class DownloadStatus { QUEUED, RESOLVING, DOWNLOADING, CONVERTING, SAVING, DONE, FAILED, CANCELLED }
 
 data class LibraryData(val tracks: List<Track>, val folders: List<Folder>)
 

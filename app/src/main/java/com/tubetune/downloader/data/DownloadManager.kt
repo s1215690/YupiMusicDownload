@@ -60,6 +60,7 @@ class DownloadManager(
 
     private var busy = false
     private val pumpLock = Any()
+    private var lastNotif = ""
 
     fun enqueue(results: List<SearchResult>, folder: String) {
         if (results.isEmpty()) return
@@ -117,6 +118,7 @@ class DownloadManager(
             if (busy) return
             next = _items.value.lastOrNull { it.status == DownloadStatus.QUEUED } ?: run {
                 _activeCount.value = 0
+                DownloadService.stop(context)
                 return
             }
             busy = true
@@ -134,6 +136,21 @@ class DownloadManager(
 
     private fun update(item: DownloadItem) {
         _items.value = _items.value.map { if (it.id == item.id) item else it }
+        // 前景通知：一句話講清楚現在在做甚麼（轉檔要幾十秒，使用者要知）
+        val text = when (item.status) {
+            DownloadStatus.QUEUED -> null
+            DownloadStatus.RESOLVING -> "解析：" + item.title
+            DownloadStatus.DOWNLOADING -> "下載：" + item.title
+            DownloadStatus.CONVERTING -> "轉檔 MP3：" + item.title
+            DownloadStatus.SAVING -> "儲存：" + item.title
+            DownloadStatus.DONE -> "完成：" + item.title
+            DownloadStatus.FAILED -> "失敗：" + item.title
+            DownloadStatus.CANCELLED -> "已取消：" + item.title
+        }
+        if (text != null && text != lastNotif) {
+            lastNotif = text
+            DownloadService.show(context, text)
+        }
     }
 
     private fun isCancelled(id: String): Boolean =
@@ -161,7 +178,9 @@ class DownloadManager(
             update(item.copy(status = DownloadStatus.RESOLVING))
             val info = withContext(Dispatchers.IO) { YoutubeService.streamInfo(item.videoId) }
             if (isCancelled(item.id)) return
-            val audio = YoutubeService.pickAudio(info, Prefs.quality(context) == "aac")
+            val wantMp3 = Prefs.format(context) == "mp3"
+            // MP3 需要先解碼再編碼：AAC(m4a) 解碼最穩、原生 44.1kHz，選它做來源
+            val audio = YoutubeService.pickAudio(info, wantMp3 || Prefs.quality(context) == "aac")
                 ?: throw IllegalStateException("找不到可下載的音訊串流")
             val suffix = audio.format?.suffix.orEmpty().ifBlank { "m4a" }
             val mime = audio.format?.mimeType.orEmpty().ifBlank { "audio/mp4" }
@@ -180,14 +199,58 @@ class DownloadManager(
             }
             if (tmp.length() == 0L) throw IllegalStateException("下載的檔案是空的")
 
+            // ---- 需要 MP3 就轉檔（下載後解碼 → LAME 編碼），失敗時退回原始檔 ----
+            var saveSrc = tmp
+            var saveMime = mime
+            var saveSuffix = suffix
+            var note: String? = null
+            if (wantMp3) {
+                update(item.copy(status = DownloadStatus.CONVERTING, progress = 0))
+                val enc = File(context.cacheDir, "mp3_" + item.id + ".tmp")
+                var lastPct = -1
+                val convStart = System.currentTimeMillis()
+                val ok = withContext(Dispatchers.IO) {
+                    Mp3Encoder.convert(
+                        tmp, enc, Prefs.mp3Bitrate(context),
+                        title = item.title, artist = item.uploader, album = item.folder,
+                        shouldStop = { isCancelled(item.id) },
+                        onProgress = { pct ->
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                update(item.copy(status = DownloadStatus.CONVERTING, progress = pct))
+                            }
+                        }
+                    )
+                }
+                val convMs = System.currentTimeMillis() - convStart
+                android.util.Log.i(
+                    "TubeTune",
+                    "MP3 轉檔: ok=" + ok + " " + convMs + "ms · " + enc.length() + " bytes · " +
+                        item.durationSeconds + "s 音訊 · " + item.title
+                )
+                if (isCancelled(item.id)) {
+                    enc.delete(); tmp.delete(); return
+                }
+                if (ok && enc.length() > 0) {
+                    saveSrc = enc
+                    saveMime = "audio/mpeg"
+                    saveSuffix = "mp3"
+                    tmp.delete()
+                } else {
+                    enc.delete()
+                    note = "MP3 轉檔失敗，已存原始檔（." + suffix + "）"
+                }
+            }
+
             update(item.copy(status = DownloadStatus.SAVING, progress = 100))
-            val sizeBytes = tmp.length()
+            val sizeBytes = saveSrc.length()
             val savedUri = withContext(Dispatchers.IO) {
                 MediaSaver.saveAudio(
-                    context, tmp, item.folder, item.title, item.uploader,
-                    item.durationSeconds * 1000, mime, suffix
+                    context, saveSrc, item.folder, item.title, item.uploader,
+                    item.durationSeconds * 1000, saveMime, saveSuffix
                 )
             }
+            if (saveSrc != tmp) saveSrc.delete()
             tmp.delete()
             val existing = library.trackBy(item.videoId)
             val base = Track(
@@ -196,7 +259,7 @@ class DownloadManager(
                 artist = item.uploader,
                 durationSeconds = item.durationSeconds,
                 thumbnailUrl = item.thumbnailUrl,
-                fileName = MediaSaver.sanitize(item.title) + "." + suffix,
+                fileName = MediaSaver.sanitize(item.title) + "." + saveSuffix,
                 uri = savedUri,
                 folder = item.folder.ifBlank { LibraryRepository.DEFAULT_FOLDER },
                 sizeBytes = sizeBytes,
@@ -215,7 +278,7 @@ class DownloadManager(
             } else {
                 library.addTrack(base)
             }
-            update(item.copy(status = DownloadStatus.DONE, progress = 100))
+            update(item.copy(status = DownloadStatus.DONE, progress = 100, error = note))
         } catch (t: Throwable) {
             if (isCancelled(item.id)) {
                 tmp.delete()

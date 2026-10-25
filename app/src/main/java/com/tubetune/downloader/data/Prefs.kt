@@ -12,6 +12,22 @@ object Prefs {
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().putString("quality", value).apply()
     }
 
+    /** 下載格式：mp3（轉檔，通用）/ m4a（原始 AAC） */
+    fun format(context: Context): String =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("format", "mp3") ?: "mp3"
+
+    fun setFormat(context: Context, value: String) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().putString("format", value).apply()
+    }
+
+    /** MP3 位元率（kbps）：128 / 192 / 320 */
+    fun mp3Bitrate(context: Context): Int =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getInt("mp3_bitrate", 192)
+
+    fun setMp3Bitrate(context: Context, value: Int) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().putInt("mp3_bitrate", value).apply()
+    }
+
     fun theme(context: Context): String =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("theme", "system") ?: "system"
 
