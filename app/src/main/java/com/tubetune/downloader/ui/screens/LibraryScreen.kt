@@ -364,7 +364,7 @@ fun LibraryScreen(vm: AppViewModel) {
                 DropdownMenuItem(
                     text = {
                         Text(
-                            if (t.lyrics.isNullOrBlank()) "AI 歌詞" else "歌詞（已儲存）",
+                            if (t.lyrics.isNullOrBlank()) "歌詞" else "歌詞（已儲存）",
                             color = MaterialTheme.colorScheme.primary
                         )
                     },

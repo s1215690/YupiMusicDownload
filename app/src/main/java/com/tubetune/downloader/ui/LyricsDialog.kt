@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,7 +38,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,12 +46,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.tubetune.downloader.AppViewModel
 
 /**
- * AI 歌詞對話框：按歌名／歌手用 DeepSeek 生成歌詞，可儲存（跟音樂庫索引一齊鏡像到 Music/TubeTune/）。
+ * 歌詞對話框：先由真歌詞庫（LRCLIB／酷狗）搵；搵唔到才可選擇 AI 推測，並明確標示可能不準。
  */
 @Composable
 fun LyricsDialog(vm: AppViewModel) {
     val ui by vm.lyricsUi.collectAsState()
     val state = ui ?: return
+    val isAi = state.source?.startsWith("AI") == true
 
     Dialog(
         onDismissRequest = { vm.closeLyrics() },
@@ -109,16 +110,22 @@ fun LyricsDialog(vm: AppViewModel) {
                     }
                 }
 
-                Spacer(Modifier.height(14.dp))
+                state.source?.let { src ->
+                    Spacer(Modifier.height(8.dp))
+                    StatusPill(
+                        "來源：" + src,
+                        if (src.startsWith("AI")) MaterialTheme.colorScheme.secondary
+                        else MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
 
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(max = 380.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surface,
-                            RoundedCornerShape(18.dp)
-                        )
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     when {
@@ -129,7 +136,7 @@ fun LyricsDialog(vm: AppViewModel) {
                             CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.5.dp)
                             Spacer(Modifier.height(12.dp))
                             Text(
-                                "AI 正在找歌詞…",
+                                "正在歌詞庫搵歌詞…",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -151,16 +158,10 @@ fun LyricsDialog(vm: AppViewModel) {
                             Modifier.fillMaxWidth().padding(vertical = 22.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(
-                                "還沒有歌詞",
-                                style = MaterialTheme.typography.titleSmall
-                            )
+                            Text("還沒有歌詞", style = MaterialTheme.typography.titleSmall)
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                if (vm.hasDeepSeekKey())
-                                    "按下面的按鈕，用 DeepSeek 按歌名搜歌詞"
-                                else
-                                    "請先到「設定 → AI 歌詞」貼上 DeepSeek API Key",
+                                "按下面「找歌詞」由 LRCLIB／酷狗歌詞庫搜尋",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -179,7 +180,8 @@ fun LyricsDialog(vm: AppViewModel) {
 
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "歌詞由 AI 生成，可能與原曲有出入，只供個人參考。",
+                    if (isAi) "以上由 AI 推測，同原曲可能有出入，唔建議當準。"
+                    else "歌詞來自公開歌詞庫，只供個人參考。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -187,7 +189,7 @@ fun LyricsDialog(vm: AppViewModel) {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { vm.generateLyrics() },
+                        onClick = { vm.findLyricsOnline() },
                         enabled = !state.loading,
                         modifier = Modifier.weight(1f).height(46.dp),
                         shape = RoundedCornerShape(15.dp),
@@ -195,12 +197,9 @@ fun LyricsDialog(vm: AppViewModel) {
                             containerColor = MaterialTheme.colorScheme.primary
                         )
                     ) {
-                        Icon(
-                            if (state.text.isNullOrBlank()) Icons.Filled.AutoAwesome else Icons.Filled.AutoAwesome,
-                            null, Modifier.size(18.dp)
-                        )
+                        Icon(Icons.Filled.Search, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text(if (state.text.isNullOrBlank()) "AI 找歌詞" else "重新生成")
+                        Text(if (state.text.isNullOrBlank()) "找歌詞" else "重新找")
                     }
                     if (!state.text.isNullOrBlank()) {
                         OutlinedButton(
@@ -215,19 +214,40 @@ fun LyricsDialog(vm: AppViewModel) {
                         }
                     }
                 }
-                if (state.saved) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End
-                    ) {
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    if (vm.hasDeepSeekKey()) {
+                        TextButton(onClick = { vm.generateLyricsAi() }, enabled = !state.loading) {
+                            Icon(
+                                Icons.Filled.AutoAwesome, null, Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                "AI 推測歌詞（可能不準）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.width(1.dp))
+                    }
+                    if (state.saved) {
                         TextButton(onClick = { vm.deleteLyrics() }) {
                             Icon(
                                 Icons.Filled.Delete, null, Modifier.size(15.dp),
                                 tint = MaterialTheme.colorScheme.error
                             )
                             Spacer(Modifier.width(5.dp))
-                            Text("刪除歌詞", color = MaterialTheme.colorScheme.error)
+                            Text(
+                                "刪除歌詞",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
                 }

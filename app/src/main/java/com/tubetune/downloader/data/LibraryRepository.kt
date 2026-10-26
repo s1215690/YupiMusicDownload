@@ -62,12 +62,12 @@ class LibraryRepository(private val context: Context) {
         return restored.tracks.size
     }
 
-    /** 儲存／清除某首歌的 AI 歌詞 */
-    fun setLyrics(videoId: String, text: String?) {
+    /** 儲存／清除某首歌的歌詞（連來源標籤） */
+    fun setLyrics(videoId: String, text: String?, source: String? = null) {
         val d = _data.value
         if (d.tracks.none { it.videoId == videoId }) return
         _data.value = d.copy(tracks = d.tracks.map {
-            if (it.videoId == videoId) it.copy(lyrics = text) else it
+            if (it.videoId == videoId) it.copy(lyrics = text, lyricsSource = source) else it
         })
         save()
     }

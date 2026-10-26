@@ -178,7 +178,7 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
             }
         }
 
-        SectionTitle("AI 歌詞（DeepSeek）")
+        SectionTitle("歌詞後備：AI（DeepSeek，選用）")
         SettingCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -187,7 +187,7 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("DeepSeek API Key", style = MaterialTheme.typography.bodyLarge)
+                    Text("DeepSeek API Key（選用）", style = MaterialTheme.typography.bodyLarge)
                     Text(
                         "貼上 platform.deepseek.com 的 Key（sk-…）。只存這部手機，不會上傳或寫入音樂資料夾",
                         style = MaterialTheme.typography.labelSmall,
@@ -221,7 +221,7 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "用法：播放頁或曲目選單按「歌詞」→ AI 找歌詞 → 按「儲存」。歌詞會跟音樂庫索引一齊鏡像到 Music/TubeTune/，重裝 App 都仲喺度。",
+                "歌詞預設由 LRCLIB／酷狗歌詞庫搜尋（真歌詞）。只有兩個庫都搵唔到時，才可選「AI 推測」，並會標明可能不準。貼上 Key 才會出現該按鈕。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
             )

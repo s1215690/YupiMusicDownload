@@ -117,10 +117,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     data class LyricsUi(
         val track: Track,
         val text: String? = null,
+        val source: String? = null,
         val loading: Boolean = false,
         val error: String? = null,
-        val saved: Boolean = false,
-        val isAi: Boolean = false
+        val saved: Boolean = false
     )
 
     private val _lyricsUi = MutableStateFlow<LyricsUi?>(null)
@@ -129,25 +129,46 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun openLyrics(track: Track) {
         val t = library.trackBy(track.videoId) ?: track
         val saved = t.lyrics?.isNotBlank() == true
-        _lyricsUi.value = LyricsUi(track = t, text = t.lyrics, saved = saved)
+        _lyricsUi.value = LyricsUi(track = t, text = t.lyrics, source = t.lyricsSource, saved = saved)
     }
 
     fun closeLyrics() {
         _lyricsUi.value = null
     }
 
-    fun generateLyrics() {
+    /** 由真歌詞庫（LRCLIB／酷狗）搵歌詞 */
+    fun findLyricsOnline() {
         val cur = _lyricsUi.value ?: return
         if (cur.loading) return
         _lyricsUi.value = cur.copy(loading = true, error = null)
         viewModelScope.launch {
-            val res = lyricsRepo.fetch(cur.track)
+            val res = lyricsRepo.fetchOnline(cur.track)
             val now = _lyricsUi.value ?: return@launch
+            val got = res.getOrNull()
             _lyricsUi.value = now.copy(
                 loading = false,
-                text = res.getOrNull() ?: now.text,
+                text = got?.text ?: now.text,
+                source = got?.source ?: now.source,
                 error = res.exceptionOrNull()?.message,
-                isAi = res.isSuccess,
+                saved = false
+            )
+        }
+    }
+
+    /** 後備：用 DeepSeek AI 推測歌詞（UI 會標明可能不準） */
+    fun generateLyricsAi() {
+        val cur = _lyricsUi.value ?: return
+        if (cur.loading) return
+        _lyricsUi.value = cur.copy(loading = true, error = null)
+        viewModelScope.launch {
+            val res = lyricsRepo.fetchAi(cur.track)
+            val now = _lyricsUi.value ?: return@launch
+            val got = res.getOrNull()
+            _lyricsUi.value = now.copy(
+                loading = false,
+                text = got?.text ?: now.text,
+                source = got?.source ?: now.source,
+                error = res.exceptionOrNull()?.message,
                 saved = false
             )
         }
@@ -157,14 +178,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun saveLyrics() {
         val cur = _lyricsUi.value ?: return
         val text = cur.text?.takeIf { it.isNotBlank() } ?: return
-        library.setLyrics(cur.track.videoId, text)
+        library.setLyrics(cur.track.videoId, text, cur.source)
         _lyricsUi.value = cur.copy(saved = true)
     }
 
     fun deleteLyrics() {
         val cur = _lyricsUi.value ?: return
-        library.setLyrics(cur.track.videoId, null)
-        _lyricsUi.value = cur.copy(text = null, saved = false, isAi = false, error = null)
+        library.setLyrics(cur.track.videoId, null, null)
+        _lyricsUi.value = cur.copy(text = null, source = null, saved = false, error = null)
     }
 
     fun hasDeepSeekKey(): Boolean = lyricsRepo.hasKey()

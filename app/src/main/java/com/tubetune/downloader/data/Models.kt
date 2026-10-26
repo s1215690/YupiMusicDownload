@@ -12,8 +12,10 @@ data class Track(
     val sizeBytes: Long,
     val downloadedAt: Long,
     val downloaded: Boolean = false,
-    /** AI 生成／使用者儲存的歌詞（null = 未取得） */
-    val lyrics: String? = null
+    /** 已儲存的歌詞（null = 未取得） */
+    val lyrics: String? = null,
+    /** 歌詞來源，例如「LRCLIB」「酷狗歌詞」「AI 推測（可能不準）」 */
+    val lyricsSource: String? = null
 )
 
 data class Folder(val name: String, val createdAt: Long)
