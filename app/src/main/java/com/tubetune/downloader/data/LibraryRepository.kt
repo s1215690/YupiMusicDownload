@@ -40,6 +40,40 @@ class LibraryRepository(private val context: Context) {
         try { file.writeText(gson.toJson(_data.value)) } catch (t: Throwable) {}
     }
 
+    /** 匯出整個音樂庫（JSON 字串）—— 給「設定 → 備份音樂庫」用 */
+    fun exportJson(): String = gson.toJson(_data.value)
+
+    /**
+     * 由備份 JSON 還原整個音樂庫（連資料夾分類、未下載的串流曲目、AI 歌詞）。
+     * @return 還原的曲目數（0 = 檔案格式不對或沒有曲目）
+     */
+    fun importJson(json: String): Int {
+        val d = try { gson.fromJson(json, LibraryData::class.java) } catch (t: Throwable) { null } ?: return 0
+        if (d.tracks.isEmpty()) return 0
+        val extraFolders = d.tracks.map { it.folder }
+            .filter { f -> f != DEFAULT_FOLDER }
+            .distinct()
+            .filter { f -> d.folders.none { it.name == f } }
+        val restored = d.copy(
+            folders = d.folders + extraFolders.map { Folder(it, System.currentTimeMillis()) }
+        )
+        _data.value = restored
+        try { file.writeText(gson.toJson(restored)) } catch (t: Throwable) {}
+        return restored.tracks.size
+    }
+
+    /** 儲存／清除某首歌的 AI 歌詞 */
+    fun setLyrics(videoId: String, text: String?) {
+        val d = _data.value
+        if (d.tracks.none { it.videoId == videoId }) return
+        _data.value = d.copy(tracks = d.tracks.map {
+            if (it.videoId == videoId) it.copy(lyrics = text) else it
+        })
+        save()
+    }
+
+    fun lyricsOf(videoId: String): String? = trackBy(videoId)?.lyrics
+
     fun addTrack(track: Track) {
         val d = _data.value
         if (d.tracks.any { it.videoId == track.videoId }) return
@@ -209,5 +243,6 @@ class LibraryRepository(private val context: Context) {
 
     companion object {
         const val DEFAULT_FOLDER = "未分類"
+
     }
 }

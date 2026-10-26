@@ -11,7 +11,9 @@ data class Track(
     val folder: String,
     val sizeBytes: Long,
     val downloadedAt: Long,
-    val downloaded: Boolean = false
+    val downloaded: Boolean = false,
+    /** AI 生成／使用者儲存的歌詞（null = 未取得） */
+    val lyrics: String? = null
 )
 
 data class Folder(val name: String, val createdAt: Long)

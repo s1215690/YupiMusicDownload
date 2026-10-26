@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -104,6 +105,7 @@ fun LibraryScreen(vm: AppViewModel) {
     val libData by vm.library.data.collectAsState()
     val playerState by vm.player.state.collectAsState()
     val downloads by vm.downloads.items.collectAsState()
+    val startupMsg by vm.startupMsg.collectAsState()
     val context = LocalContext.current
 
     var folder by remember { mutableStateOf<String?>(null) }
@@ -227,14 +229,14 @@ fun LibraryScreen(vm: AppViewModel) {
             }
         }
 
-        scanMsg?.let { msg ->
+        (scanMsg ?: startupMsg)?.let { msg ->
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                    .clickable { scanMsg = null }
+                    .clickable { scanMsg = null; vm.clearStartupMsg() }
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -358,6 +360,16 @@ fun LibraryScreen(vm: AppViewModel) {
                     text = { Text("串流播放") },
                     leadingIcon = { Icon(Icons.Filled.CloudDownload, null) },
                     onClick = { menuTrack = null; vm.playTrack(t, tracksOf(t.folder), PlaySource.STREAM) }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (t.lyrics.isNullOrBlank()) "AI 歌詞" else "歌詞（已儲存）",
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Lyrics, null) },
+                    onClick = { menuTrack = null; vm.openLyrics(t) }
                 )
                 DropdownMenuItem(
                     text = { Text("移動到資料夾") },

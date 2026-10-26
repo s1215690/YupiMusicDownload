@@ -28,6 +28,32 @@ object Prefs {
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().putInt("mp3_bitrate", value).apply()
     }
 
+    /** 有無自動問過「音樂和音訊」權限（避免每次開 App 都彈） */
+    fun askedAudioPerm(context: Context): Boolean =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getBoolean("asked_audio", false)
+
+    fun setAskedAudioPerm(context: Context, value: Boolean) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().putBoolean("asked_audio", value).apply()
+    }
+
+    /** DeepSeek API Key（只存本機，不會上傳） */
+    fun deepSeekKey(context: Context): String =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("deepseek_key", "") ?: ""
+
+    fun setDeepSeekKey(context: Context, value: String) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putString("deepseek_key", value.trim()).apply()
+    }
+
+    fun deepSeekModel(context: Context): String =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+            .getString("deepseek_model", "deepseek-chat") ?: "deepseek-chat"
+
+    fun setDeepSeekModel(context: Context, value: String) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putString("deepseek_model", value.trim()).apply()
+    }
+
     fun theme(context: Context): String =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("theme", "system") ?: "system"
 

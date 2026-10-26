@@ -10,6 +10,9 @@
 - 🎵 **MP3 轉檔**：下載後自動解碼 → LAME 編碼成真 MP3（可選 128／192／320 kbps），寫入 ID3 歌名／歌手／資料夾標籤
 - 📁 **資料夾一鍵下載**：每個資料夾（含「全部」總覽的卡片）都有「下載全部」，只下載尚未下載的曲目
 - 🎧 **音樂庫**：資料夾卡片牆 + 資料夾內曲目清單、長按多選
+- ♻️ **重裝自動找回**：App 清資料／重裝後，授權一次「音樂和音訊」即自動掃描 `Music/TubeTune` 把歌和資料夾分類找回來
+- 💾 **備份／還原**：一鍵把整個音樂庫（含未下載的歌、AI 歌詞、資料夾）存成 JSON，換機／重裝後還原
+- 📝 **AI 歌詞**：用 DeepSeek 按歌名／歌手生成歌詞，可儲存（跟音樂庫一齊備份）
 - 🔀 **播放模式**：順序 / 循環 / 隨機 / 單曲重複（每個資料夾各自記憶）
 - 🎤 **KTV 錄音**、**懸浮迷你播放器**、**三指點擊播放/暫停**、**分享整合**
 
@@ -17,9 +20,10 @@
 
 - Kotlin + Jetpack Compose（Material 3，自訂深色「極光」主題）
 - [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) v0.26.5（解析搜尋／串流）
-- OkHttp 4.12（下載引擎，多連線分段）
+- OkHttp 4.12（下載引擎，多連線分段；DeepSeek API 呼叫）
 - MediaCodec 解碼 + [jump3r](https://github.com/Sciss/jump3r)（純 Java LAME）編碼 → MP3，無需 NDK
 - 下載／轉檔期間使用 dataSync 前景服務，切去其他 App 亦不會被中斷
+- 歌詞：DeepSeek `chat/completions`（`deepseek-chat`），API Key 只存本機 SharedPreferences，不會上傳或寫入音樂資料夾
 
 ## 建置
 

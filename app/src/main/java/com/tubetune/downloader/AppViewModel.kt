@@ -1,11 +1,16 @@
 package com.tubetune.downloader
 
+import android.Manifest
 import android.app.Application
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tubetune.downloader.data.DownloadManager
 import com.tubetune.downloader.data.LibraryRepository
+import com.tubetune.downloader.data.LyricsRepository
 import com.tubetune.downloader.data.MediaSaver
 import com.tubetune.downloader.data.PlaySource
 import com.tubetune.downloader.data.Prefs
@@ -34,6 +39,45 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val downloads = DownloadManager(app, library)
     val player = PlayerController(app)
     val preview = PreviewController()
+    val lyricsRepo = LyricsRepository(app)
+
+    /** 啟動時自動還原音樂庫的提示（重裝／清資料後第一次開） */
+    private val _startupMsg = MutableStateFlow<String?>(null)
+    val startupMsg: StateFlow<String?> = _startupMsg.asStateFlow()
+
+    fun clearStartupMsg() {
+        _startupMsg.value = null
+    }
+
+    /** 需要使用者授權「音樂和音訊」，之後就會自動把舊歌找回來 */
+    private val _needAudioPermission = MutableStateFlow(false)
+    val needAudioPermission: StateFlow<Boolean> = _needAudioPermission.asStateFlow()
+
+    fun onAudioPermissionResult(granted: Boolean) {
+        _needAudioPermission.value = false
+        Prefs.setAskedAudioPerm(getApplication(), true)
+        if (granted) scanLocalSongs()
+        else _startupMsg.value = "未能自動找回舊歌：需要「音樂和音訊」權限（可在音樂庫按右上 ↻ 掃描）"
+    }
+
+    /** 掃描手機 Music/TubeTune 內的歌曲，補回音樂庫索引 */
+    fun scanLocalSongs() {
+        viewModelScope.launch {
+            val n = withContext(Dispatchers.IO) { library.importLocalFiles() }
+            if (n > 0) _startupMsg.value = "已找回 " + n + " 首本機歌曲（資料夾分類一齊回復）"
+        }
+    }
+
+    /** 備份整個音樂庫（含歌詞、未下載歌曲） */
+    fun exportLibrary(): String = library.exportJson()
+
+    fun importLibrary(json: String): Int = library.importJson(json)
+
+    private fun hasAudioReadPermission(): Boolean {
+        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+        return ContextCompat.checkSelfPermission(getApplication(), perm) == PackageManager.PERMISSION_GRANTED
+    }
 
     /** App 回到前景時：讓 UI 與實際播放器狀態重新同步（背景回來後控制失效的修復） */
     fun resync() {
@@ -48,6 +92,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val ktvError: StateFlow<String?> = KtvService.error
 
     init {
+        // 重裝／清除資料後：先用 Music/TubeTune/ 的索引鏡像還原（連資料夾、歌詞、串流曲目），
+        // 鏡像唔存在或讀唔到，就掃描資料夾把有檔案的歌找回來
+        if (library.data.value.tracks.isEmpty()) {
+            when {
+                hasAudioReadPermission() -> scanLocalSongs()
+                !Prefs.askedAudioPerm(getApplication()) -> _needAudioPermission.value = true
+            }
+        }
+
         // 錄音完成 → 自動加入音樂庫「KTV 錄音」資料夾
         viewModelScope.launch {
             KtvService.savedTrack.collect { t ->
@@ -58,6 +111,63 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    // ---- AI 歌詞（DeepSeek）----
+
+    data class LyricsUi(
+        val track: Track,
+        val text: String? = null,
+        val loading: Boolean = false,
+        val error: String? = null,
+        val saved: Boolean = false,
+        val isAi: Boolean = false
+    )
+
+    private val _lyricsUi = MutableStateFlow<LyricsUi?>(null)
+    val lyricsUi: StateFlow<LyricsUi?> = _lyricsUi.asStateFlow()
+
+    fun openLyrics(track: Track) {
+        val t = library.trackBy(track.videoId) ?: track
+        val saved = t.lyrics?.isNotBlank() == true
+        _lyricsUi.value = LyricsUi(track = t, text = t.lyrics, saved = saved)
+    }
+
+    fun closeLyrics() {
+        _lyricsUi.value = null
+    }
+
+    fun generateLyrics() {
+        val cur = _lyricsUi.value ?: return
+        if (cur.loading) return
+        _lyricsUi.value = cur.copy(loading = true, error = null)
+        viewModelScope.launch {
+            val res = lyricsRepo.fetch(cur.track)
+            val now = _lyricsUi.value ?: return@launch
+            _lyricsUi.value = now.copy(
+                loading = false,
+                text = res.getOrNull() ?: now.text,
+                error = res.exceptionOrNull()?.message,
+                isAi = res.isSuccess,
+                saved = false
+            )
+        }
+    }
+
+    /** 儲存歌詞（寫入音樂庫索引 → 亦會鏡像到 Music/TubeTune/，重裝都仲喺度） */
+    fun saveLyrics() {
+        val cur = _lyricsUi.value ?: return
+        val text = cur.text?.takeIf { it.isNotBlank() } ?: return
+        library.setLyrics(cur.track.videoId, text)
+        _lyricsUi.value = cur.copy(saved = true)
+    }
+
+    fun deleteLyrics() {
+        val cur = _lyricsUi.value ?: return
+        library.setLyrics(cur.track.videoId, null)
+        _lyricsUi.value = cur.copy(text = null, saved = false, isAi = false, error = null)
+    }
+
+    fun hasDeepSeekKey(): Boolean = lyricsRepo.hasKey()
 
     /** 開始 KTV 錄音（只錄手機本體麥克風，不需任何畫面錄製授權）；錄音檔以目前播放的歌曲名命名 */
     fun startKtv() {

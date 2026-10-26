@@ -15,6 +15,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,7 +47,7 @@ class MainActivity : ComponentActivity() {
                     else -> null
                 }
             ) {
-                StoragePermission()
+                StoragePermission(vm)
                 CrashReportDialog()
                 AppRoot(vm = vm, onThemeChange = { t -> themeOverride = t })
                 LaunchedEffect(Unit) {
@@ -96,9 +97,27 @@ private fun CrashReportDialog() {
 }
 
 @Composable
-private fun StoragePermission() {
+private fun StoragePermission(vm: AppViewModel) {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val audioPermission = if (Build.VERSION.SDK_INT >= 33) {
+        Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+    val audioLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> vm.onAudioPermissionResult(granted) }
+
+    // 重裝／清資料後音樂庫是空的：自動問一次權限，之後自動把 Music/TubeTune 的舊歌找回來
+    val needAudio by vm.needAudioPermission.collectAsState()
+    LaunchedEffect(needAudio) {
+        if (!needAudio) return@LaunchedEffect
+        val granted = ContextCompat.checkSelfPermission(context, audioPermission) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) vm.onAudioPermissionResult(true) else audioLauncher.launch(audioPermission)
+    }
+
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
             val granted = ContextCompat.checkSelfPermission(

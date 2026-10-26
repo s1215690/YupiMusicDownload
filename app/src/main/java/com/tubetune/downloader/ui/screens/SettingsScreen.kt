@@ -2,6 +2,8 @@ package com.tubetune.downloader.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,16 +25,31 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.TipsAndUpdates
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +60,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.tubetune.downloader.AppViewModel
 import com.tubetune.downloader.data.Prefs
@@ -58,7 +79,48 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
     var bitrate by remember { mutableStateOf(Prefs.mp3Bitrate(context)) }
     var theme by remember { mutableStateOf(Prefs.theme(context)) }
     var floating by remember { mutableStateOf(Prefs.floatingPlayer(context)) }
+    var apiKey by remember { mutableStateOf(Prefs.deepSeekKey(context)) }
+    var showKey by remember { mutableStateOf(false) }
+    var backupMsg by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val hasOverlay = Settings.canDrawOverlays(context)
+
+    val createDoc = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use {
+                        it.write(vm.exportLibrary().toByteArray(Charsets.UTF_8))
+                    }
+                    true
+                }.getOrDefault(false)
+            }
+            backupMsg = if (ok) "已備份（記住這個檔案位置）" else "備份失敗"
+        }
+    }
+
+    val openDoc = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val res = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = context.contentResolver.openInputStream(uri)
+                        ?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                    vm.importLibrary(text)
+                }.getOrDefault(-1)
+            }
+            backupMsg = when {
+                res > 0 -> "已還原 " + res + " 首（含資料夾與歌詞）"
+                res == 0 -> "這個備份檔沒有歌曲資料"
+                else -> "讀取備份失敗"
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(
@@ -114,6 +176,55 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                 format = "m4a"
                 Prefs.setFormat(context, "m4a")
             }
+        }
+
+        SectionTitle("AI 歌詞（DeepSeek）")
+        SettingCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Lyrics, null, Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("DeepSeek API Key", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "貼上 platform.deepseek.com 的 Key（sk-…）。只存這部手機，不會上傳或寫入音樂資料夾",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = {
+                    apiKey = it
+                    Prefs.setDeepSeekKey(context, it)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                placeholder = { Text("sk-…") },
+                visualTransformation = if (showKey) VisualTransformation.None
+                else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = { showKey = !showKey }) {
+                        Icon(
+                            if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = if (showKey) "隱藏" else "顯示",
+                            Modifier.size(19.dp)
+                        )
+                    }
+                }
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "用法：播放頁或曲目選單按「歌詞」→ AI 找歌詞 → 按「儲存」。歌詞會跟音樂庫索引一齊鏡像到 Music/TubeTune/，重裝 App 都仲喺度。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
         }
 
         SectionTitle("外觀")
@@ -185,6 +296,47 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                     } catch (t: Throwable) {
                     }
                 }) { Text("前往授權") }
+            }
+        }
+
+        SectionTitle("音樂庫備份")
+        SettingCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Backup, null, Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                Text("換機／重裝前建議做一次", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { createDoc.launch("tubetune-backup.json") },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) { Text("備份音樂庫") }
+                OutlinedButton(
+                    onClick = { openDoc.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Filled.Restore, null, Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("還原")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "備份檔包含資料夾分類、未下載的歌曲清單和 AI 歌詞。" +
+                    "重裝 App 後先用「音樂庫 → 右上 ↻」掃回歌曲，再選備份檔還原分類同歌詞。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            backupMsg?.let { msg ->
+                Spacer(Modifier.height(6.dp))
+                Text(msg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
         }
 

@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -131,6 +132,27 @@ fun PlayerScreen(vm: AppViewModel) {
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                // AI 歌詞
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                        .clickable { vm.openLyrics(s.track) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.Lyrics, contentDescription = "歌詞",
+                        Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        "歌詞",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
                 if (ktvRecording) {
                     Row(
                         Modifier

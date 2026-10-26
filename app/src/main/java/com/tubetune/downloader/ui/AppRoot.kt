@@ -118,6 +118,9 @@ fun AppRoot(vm: AppViewModel, onThemeChange: (String) -> Unit) {
             }
         }
 
+        // AI 歌詞對話框（任何畫面之上）
+        LyricsDialog(vm)
+
         AnimatedVisibility(
             visible = openPlayer && playerState != null,
             enter = slideInVertically { it },
