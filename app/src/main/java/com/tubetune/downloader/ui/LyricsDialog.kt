@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -30,12 +31,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,6 +58,12 @@ fun LyricsDialog(vm: AppViewModel) {
     val ui by vm.lyricsUi.collectAsState()
     val state = ui ?: return
     val isAi = state.source?.startsWith("AI") == true
+
+    // 手動輸入關鍵字（自動搜尋失敗時的後路）：預填已清洗的歌名／歌手
+    var showManual by remember { mutableStateOf(false) }
+    val prefill = remember(state.track.videoId) { vm.lyricsRepo.previewQuery(state.track) }
+    var manualTitle by remember(state.track.videoId) { mutableStateOf(prefill.first) }
+    var manualArtist by remember(state.track.videoId) { mutableStateOf(prefill.second) }
 
     Dialog(
         onDismissRequest = { vm.closeLyrics() },
@@ -124,7 +135,7 @@ fun LyricsDialog(vm: AppViewModel) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 380.dp)
+                        .heightIn(max = if (showManual) 230.dp else 380.dp)
                         .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
@@ -213,6 +224,66 @@ fun LyricsDialog(vm: AppViewModel) {
                             Text(if (state.saved) "已儲存" else "儲存")
                         }
                     }
+                }
+
+                // 手動輸入歌名／歌手（自動搜尋失敗時的後路）
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { showManual = !showManual }) {
+                        Icon(
+                            Icons.Filled.Edit, null, Modifier.size(15.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            if (showManual) "收起手動輸入" else "手動輸入歌名／歌手",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                if (showManual) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = manualTitle,
+                            onValueChange = { manualTitle = it },
+                            modifier = Modifier.weight(1.3f),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            label = { Text("歌名", style = MaterialTheme.typography.labelSmall) }
+                        )
+                        OutlinedTextField(
+                            value = manualArtist,
+                            onValueChange = { manualArtist = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            label = { Text("歌手（可空）", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { vm.findLyricsManual(manualTitle, manualArtist) },
+                        enabled = !state.loading && manualTitle.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(Icons.Filled.Search, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("用這些關鍵字搜尋")
+                    }
+                    Spacer(Modifier.height(4.dp))
                 }
 
                 Row(

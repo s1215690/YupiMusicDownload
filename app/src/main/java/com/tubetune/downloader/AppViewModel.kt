@@ -143,16 +143,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _lyricsUi.value = cur.copy(loading = true, error = null)
         viewModelScope.launch {
             val res = lyricsRepo.fetchOnline(cur.track)
-            val now = _lyricsUi.value ?: return@launch
-            val got = res.getOrNull()
-            _lyricsUi.value = now.copy(
-                loading = false,
-                text = got?.text ?: now.text,
-                source = got?.source ?: now.source,
-                error = res.exceptionOrNull()?.message,
-                saved = false
-            )
+            applyLyricsResult(res)
         }
+    }
+
+    /** 手動輸入歌名／歌手再查（自動搜尋失敗時的後路） */
+    fun findLyricsManual(title: String, artist: String) {
+        val cur = _lyricsUi.value ?: return
+        if (cur.loading) return
+        _lyricsUi.value = cur.copy(loading = true, error = null)
+        viewModelScope.launch {
+            val res = lyricsRepo.fetchOnline(cur.track, title, artist)
+            applyLyricsResult(res)
+        }
+    }
+
+    private fun applyLyricsResult(res: Result<LyricsRepository.Lyric>) {
+        val now = _lyricsUi.value ?: return
+        val got = res.getOrNull()
+        _lyricsUi.value = now.copy(
+            loading = false,
+            text = got?.text ?: now.text,
+            source = got?.source ?: now.source,
+            error = res.exceptionOrNull()?.message,
+            saved = false
+        )
     }
 
     /** 後備：用 DeepSeek AI 推測歌詞（UI 會標明可能不準） */

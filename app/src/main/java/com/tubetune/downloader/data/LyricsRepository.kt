@@ -40,9 +40,16 @@ class LyricsRepository(private val context: Context) {
     // ---------------- 對外 API ----------------
 
     /** 由真歌詞庫搵：LRCLIB → 酷狗。搵唔到就失敗（唔會作） */
-    suspend fun fetchOnline(track: Track): Result<Lyric> = withContext(Dispatchers.IO) {
-        val title = cleanTitle(track.title)
-        val artist = cleanArtist(track.artist)
+    suspend fun fetchOnline(
+        track: Track,
+        titleOverride: String? = null,
+        artistOverride: String? = null
+    ): Result<Lyric> = withContext(Dispatchers.IO) {
+        val title = (titleOverride?.takeIf { it.isNotBlank() } ?: cleanTitle(track.title)).trim()
+        val artist = (artistOverride?.takeIf { it.isNotBlank() } ?: cleanArtist(track.artist)).trim()
+        if (title.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("歌名是空白，請手動輸入歌名"))
+        }
 
         // 由窄到寬：歌名+歌手 → 純歌名（YouTube 上載者名太長會拖低命中率）
         val queries = ArrayList<Pair<String, String>>()
@@ -128,6 +135,10 @@ class LyricsRepository(private val context: Context) {
 
     fun hasKey(): Boolean = Prefs.deepSeekKey(context).isNotBlank()
 
+    /** 手動輸入框的預填值（已清洗的歌名／歌手） */
+    fun previewQuery(track: Track): Pair<String, String> =
+        cleanTitle(track.title) to cleanArtist(track.artist)
+
     companion object {
         private const val ENDPOINT = "https://api.deepseek.com/chat/completions"
         private const val SYSTEM_PROMPT =
@@ -174,7 +185,7 @@ class LyricsRepository(private val context: Context) {
         if (bestScore < 2.0) return null
         val plain = o.get("plainLyrics").orEmptyText()
         val synced = o.get("syncedLyrics").orEmptyText()
-        val text = if (plain.isNotBlank()) plain else lrcToPlain(synced)
+        val text = if (plain.isNotBlank()) plain else lrcToPlain(synced, title)
         if (text.isBlank()) return null
         return Lyric(toTraditional(text), "LRCLIB")
     }
@@ -216,7 +227,7 @@ class LyricsRepository(private val context: Context) {
         val lrc = runCatching {
             String(android.util.Base64.decode(content, android.util.Base64.DEFAULT), Charsets.UTF_8)
         }.getOrNull() ?: return null
-        val text = lrcToPlain(lrc)
+        val text = lrcToPlain(lrc, title)
         if (text.isBlank()) return null
         return Lyric(toTraditional(text), "酷狗歌詞")
     }
@@ -250,16 +261,29 @@ class LyricsRepository(private val context: Context) {
         return null
     }
 
-    /** LRC（[mm:ss.xx] 歌詞）→ 純文字；順手去掉「詞：」「曲：」等製作名單 */
-    private fun lrcToPlain(lrc: String): String {
+    /** LRC（[mm:ss.xx] 歌詞）→ 純文字；順手去掉「詞：」「Written by:」等製作名單與標題回聲行 */
+    private fun lrcToPlain(lrc: String, titleForEcho: String? = null): String {
         if (lrc.isBlank()) return ""
         val lines = lrc.lines().map { line ->
             line.replace(Regex("^\\s*(\\[[^\\]]*\\]\\s*)+"), "").trim()
         }.filter { it.isNotEmpty() && !it.startsWith("[") }
             .filterNot { it.matches(Regex("^[\\p{Punct}\\s]*$")) }
-        val credits = Regex("^(作詞|作曲|編曲|監製|製作人|製作|詞|曲|編|OP|SP|混音|母帶|吉他|貝斯|鼓|和音|發行|出品|錄音)[：:]")
-        val kept = lines.filterNot { credits.containsMatchIn(it) }
-        return (if (kept.isEmpty()) lines else kept).joinToString("\n").trim()
+        val credits = Regex(
+            "^(作詞|作曲|編曲|監製|製作人|製作|詞|曲|編|OP|SP|混音|母帶|吉他|貝斯|鼓|和音|發行|出品|錄音|" +
+                "written by|lyrics by|composed by|composer|arranger|producer|mixed by|mastered by|" +
+                "music by|words by|詞曲)[：:]",
+            RegexOption.IGNORE_CASE
+        )
+        var kept = lines.filterNot { credits.containsMatchIn(it) }
+        // 酷狗第一行常係「歌名 (外語原名) (中文譯名) - 歌名」的回聲行，剔走
+        if (titleForEcho != null && kept.isNotEmpty()) {
+            val first = kept.first()
+            val looksLikeEcho = norm(first).contains(norm(titleForEcho)) &&
+                (first.contains("(") || first.contains("（") || first.contains(" - "))
+            if (looksLikeEcho) kept = kept.drop(1)
+        }
+        if (kept.isEmpty()) kept = lines
+        return kept.joinToString("\n").trim()
     }
 
     /** 簡體 → 繁體（Android 內建 ICU），失敗就原樣返回 */
