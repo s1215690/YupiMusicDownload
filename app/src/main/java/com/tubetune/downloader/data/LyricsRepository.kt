@@ -44,12 +44,22 @@ class LyricsRepository(private val context: Context) {
         val title = cleanTitle(track.title)
         val artist = cleanArtist(track.artist)
 
-        runCatching { lrclib(title, artist, track.durationSeconds) }.getOrNull()?.let {
-            return@withContext Result.success(it)
+        // 由窄到寬：歌名+歌手 → 純歌名（YouTube 上載者名太長會拖低命中率）
+        val queries = ArrayList<Pair<String, String>>()
+        if (artist.isNotBlank()) queries.add(title to artist)
+        queries.add(title to "")
+
+        for ((t, a) in queries) {
+            val hit = runCatching { lrclib(t, a, track.durationSeconds) }.getOrNull()
+            android.util.Log.i("TubeTune", "歌詞 LRCLIB q=[" + t + " " + a + "] 命中=" + (hit != null))
+            if (hit != null) return@withContext Result.success(hit)
         }
-        runCatching { kugou(title, artist) }.getOrNull()?.let {
-            return@withContext Result.success(it)
+        for ((t, a) in queries) {
+            val hit = runCatching { kugou(t, a) }.getOrNull()
+            android.util.Log.i("TubeTune", "歌詞 酷狗 q=[" + t + " " + a + "] 命中=" + (hit != null))
+            if (hit != null) return@withContext Result.success(hit)
         }
+        android.util.Log.w("TubeTune", "歌詞查詢全部失敗 title=" + title + " artist=" + artist)
         Result.failure(IllegalStateException("兩個歌詞庫都搵唔到（可試「AI 推測」，但可能不準）"))
     }
 
@@ -286,9 +296,28 @@ class LyricsRepository(private val context: Context) {
         return s.replace(Regex("\\s+"), " ").trim().trim('-', '–', '—').trim()
     }
 
+    /**
+     * 歌手清洗：MediaStore 的 artist 好多時係 YouTube 上載者全名，
+     * 例如「張敬軒 Hins Cheung and 英皇娛樂 eeg or 英皇娛樂」→ 只保留「張敬軒 Hins Cheung」。
+     */
     private fun cleanArtist(raw: String): String {
-        val s = raw.trim()
-        return if (s.isBlank() || s == "未知歌手" || s == "<unknown>") "" else s
+        var s = raw.trim()
+        if (s.isBlank() || s == "未知歌手" || s == "<unknown>") return ""
+        val cut = listOf(
+            " and ", " & ", "&amp;", ",", "，", "、", " x ", " × ", " feat", " ft.", " / ", "|", "；", ";"
+        )
+        for (c in cut) {
+            val i = s.indexOf(c, ignoreCase = true)
+            if (i > 0) s = s.substring(0, i)
+        }
+        val noise = listOf(
+            "Records", "Record", "Music", "Entertainment", "Official", "Channel", "VEVO",
+            "英皇娛樂", "娛樂", "唱片", "音樂", "官方"
+        )
+        noise.forEach { s = s.replace(it, " ", ignoreCase = true) }
+        s = s.replace(Regex("\\s+"), " ").trim().trim('-', '–', '—')
+        if (s.length > 24) s = s.take(24).trim()
+        return s
     }
 
     /** 粗略字串相似度（0..1），用於揀最匹配的搜尋結果 */
