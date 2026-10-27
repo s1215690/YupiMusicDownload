@@ -54,13 +54,13 @@ object Prefs {
             .putInt("lyrics_font_sp", sp.coerceIn(12, 32)).apply()
     }
 
-    /** 歌詞自動滾動速度（dp/秒） */
-    fun lyricsSpeedDp(context: Context): Int =
-        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getInt("lyrics_speed_dp", 20)
+    /** 歌詞自動滾動速度（0.1 dp/秒 為單位，即 120 = 12.0 dp/s） */
+    fun lyricsSpeed10(context: Context): Int =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getInt("lyrics_speed10", 120)
 
-    fun setLyricsSpeedDp(context: Context, dp: Int) {
+    fun setLyricsSpeed10(context: Context, value: Int) {
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
-            .putInt("lyrics_speed_dp", dp.coerceIn(4, 90)).apply()
+            .putInt("lyrics_speed10", value.coerceIn(5, 600)).apply()
     }
 
     /** DeepSeek API Key（只存本機，不會上傳） */

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -80,26 +81,32 @@ fun LyricsDialog(vm: AppViewModel) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
     var fontSp by remember { mutableIntStateOf(Prefs.lyricsFontSp(ctx)) }
-    var speedDp by remember { mutableIntStateOf(Prefs.lyricsSpeedDp(ctx)) }
+    var speed10 by remember { mutableIntStateOf(Prefs.lyricsSpeed10(ctx)) }
     var autoScroll by remember { mutableStateOf(false) }
     val lyricScroll = rememberScrollState()
 
-    // 自動滾動：逐 frame 推進，捲到底自動停
-    LaunchedEffect(autoScroll, speedDp, state.text) {
+    // 自動滾動：逐 frame 推進，捲到底自動停。
+    // 注意一定要用浮點累加器：若每 frame 直接 toInt() 再 coerceAtLeast(1)，
+    // 慢速（例如 3dp/s）會被逼成每 frame 1px ≈ 60px/s，變成「最細都太快」。
+    LaunchedEffect(autoScroll, speed10, state.text) {
         if (!autoScroll) return@LaunchedEffect
-        val pxPerSec = speedDp * density.density
+        val pxPerSec = (speed10 / 10f) * density.density
+        var accumulated = 0f
         var last = withFrameNanos { it }
         while (autoScroll) {
             val now = withFrameNanos { it }
             val dt = (now - last) / 1_000_000_000f
             last = now
             if (dt > 0f) {
-                val next = lyricScroll.value + (pxPerSec * dt).toInt().coerceAtLeast(1)
-                if (lyricScroll.maxValue > 0 && next >= lyricScroll.maxValue) {
-                    lyricScroll.scrollTo(lyricScroll.maxValue)
-                    autoScroll = false
-                } else if (lyricScroll.maxValue > 0) {
-                    lyricScroll.scrollTo(next)
+                accumulated += pxPerSec * dt
+                val step = accumulated.toInt()
+                if (step >= 1) {
+                    accumulated -= step
+                    if (lyricScroll.maxValue > 0) {
+                        val target = (lyricScroll.value + step).coerceAtMost(lyricScroll.maxValue)
+                        lyricScroll.scrollTo(target)
+                        if (target >= lyricScroll.maxValue) autoScroll = false
+                    }
                 }
             }
         }
@@ -229,28 +236,26 @@ fun LyricsDialog(vm: AppViewModel) {
 
                 // ---- 字體 / 自動滾動 / 速度 ----
                 if (!state.text.isNullOrBlank()) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(12.dp))
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        SmallPill("A−") {
-                            if (fontSp > 12) {
-                                fontSp -= 2
-                                Prefs.setLyricsFontSp(ctx, fontSp)
-                            }
+                        FontButton("A−", enabled = fontSp > 12) {
+                            fontSp = (fontSp - 2).coerceAtLeast(12)
+                            Prefs.setLyricsFontSp(ctx, fontSp)
                         }
                         Text(
                             fontSp.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.width(26.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
-                        SmallPill("A＋") {
-                            if (fontSp < 32) {
-                                fontSp += 2
-                                Prefs.setLyricsFontSp(ctx, fontSp)
-                            }
+                        FontButton("A＋", enabled = fontSp < 32) {
+                            fontSp = (fontSp + 2).coerceAtMost(32)
+                            Prefs.setLyricsFontSp(ctx, fontSp)
                         }
                         Spacer(Modifier.weight(1f))
                         Row(
@@ -261,20 +266,20 @@ fun LyricsDialog(vm: AppViewModel) {
                                     else MaterialTheme.colorScheme.surfaceContainerHighest
                                 )
                                 .clickable { autoScroll = !autoScroll }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                .padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 if (autoScroll) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = null,
-                                modifier = Modifier.size(15.dp),
+                                modifier = Modifier.size(18.dp),
                                 tint = if (autoScroll) MaterialTheme.colorScheme.onPrimary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.width(5.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 if (autoScroll) "滾動中" else "自動滾動",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelLarge,
                                 color = if (autoScroll) MaterialTheme.colorScheme.onPrimary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -287,23 +292,24 @@ fun LyricsDialog(vm: AppViewModel) {
                         ) {
                             Text(
                                 "速度",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Slider(
-                                value = speedDp.toFloat(),
+                                value = speed10.toFloat(),
                                 onValueChange = {
-                                    speedDp = it.toInt().coerceIn(4, 90)
-                                    Prefs.setLyricsSpeedDp(ctx, speedDp)
+                                    speed10 = it.toInt().coerceIn(5, 600)
+                                    Prefs.setLyricsSpeed10(ctx, speed10)
                                 },
-                                valueRange = 4f..90f,
-                                modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
+                                valueRange = 5f..600f,
+                                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
                             )
                             Text(
-                                speedDp.toString(),
-                                style = MaterialTheme.typography.labelSmall,
+                                String.format("%.1f", speed10 / 10f),
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(20.dp)
+                                modifier = Modifier.width(38.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End
                             )
                         }
                     }
@@ -456,22 +462,25 @@ fun LyricsDialog(vm: AppViewModel) {
     }
 }
 
-
-/** 細小的膠囊按鈕（A− / A＋） */
+/** 字級按鈕：44dp 圓形觸控區，唔會做細到撳唔到 */
 @Composable
-private fun SmallPill(label: String, onClick: () -> Unit) {
+private fun FontButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(
+                if (enabled) MaterialTheme.colorScheme.surfaceContainerHighest
+                else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f)
+            )
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = MaterialTheme.typography.titleSmall,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         )
     }
 }
