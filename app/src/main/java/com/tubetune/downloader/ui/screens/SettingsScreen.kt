@@ -390,8 +390,8 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "備份檔包含資料夾分類、未下載的歌曲清單和 AI 歌詞。" +
-                    "重裝 App 後先用「音樂庫 → 右上 ↻」掃回歌曲，再選備份檔還原分類同歌詞。",
+                "備份檔包含資料夾分類、未下載的歌曲清單、AI 歌詞，同埋每首歌嘅 YouTube 下載連結" +
+                    "（換機後睇得返原本係邊條片）。重裝 App 後先用「音樂庫 → 右上 ↻」掃回歌曲，再選備份檔還原分類同歌詞。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
             )

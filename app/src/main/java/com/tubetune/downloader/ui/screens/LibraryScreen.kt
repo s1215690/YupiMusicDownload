@@ -32,6 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Add
@@ -438,6 +440,16 @@ fun LibraryScreen(vm: AppViewModel) {
                     onClick = { menuTrack = null; moveTrack = t }
                 )
                 DropdownMenuItem(
+                    text = { Text("複製下載連結") },
+                    leadingIcon = { Icon(Icons.Filled.Link, null) },
+                    onClick = { menuTrack = null; copyTrackLink(context, t) }
+                )
+                DropdownMenuItem(
+                    text = { Text("在 YouTube 開啟") },
+                    leadingIcon = { Icon(Icons.Filled.OpenInNew, null) },
+                    onClick = { menuTrack = null; openTrackLink(context, t) }
+                )
+                DropdownMenuItem(
                     text = { Text(if (t.downloaded) "刪除" else "從資料夾移除") },
                     leadingIcon = { Icon(Icons.Filled.Delete, null) },
                     onClick = { menuTrack = null; deleteConfirm = t }
@@ -529,6 +541,26 @@ fun LibraryScreen(vm: AppViewModel) {
                 TextButton(onClick = { bulkDelete = emptyList() }) { Text("取消") }
             }
         )
+    }
+}
+
+/** 複製某首歌的 YouTube 下載連結（同備份 JSON 內嘅 url 一致） */
+private fun copyTrackLink(context: android.content.Context, t: Track) {
+    val url = LibraryRepository.youtubeUrl(t.videoId)
+    val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+    cm?.setPrimaryClip(android.content.ClipData.newPlainText("YouTube", url))
+    android.widget.Toast.makeText(context, "已複製：" + url, android.widget.Toast.LENGTH_SHORT).show()
+}
+
+/** 用瀏覽器／YouTube App 開啟原片 */
+private fun openTrackLink(context: android.content.Context, t: Track) {
+    val url = LibraryRepository.youtubeUrl(t.videoId)
+    runCatching {
+        context.startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+        )
+    }.onFailure {
+        android.widget.Toast.makeText(context, "沒有 App 可以開啟連結", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 

@@ -65,6 +65,19 @@ object CloudBackup {
             val out = context.contentResolver.openOutputStream(file.uri, "wt")
                 ?: return Result.failure(IllegalStateException("無法寫入備份檔案"))
             out.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+            // 每日留一份快照：唔小心刪咗歌、雲端主檔又被覆寫時，都仲有前幾日嘅版本可救
+            try {
+                val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    .format(java.util.Date())
+                val datedName = "tubetune-backup-" + day + ".json"
+                if (dir.findFile(datedName) == null) {
+                    dir.createFile(MIME, datedName)?.let { f ->
+                        context.contentResolver.openOutputStream(f.uri, "wt")?.use {
+                            it.write(json.toByteArray(Charsets.UTF_8))
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
             val now = System.currentTimeMillis()
             Prefs.setBackupLastAt(context, now)
             Result.success(now)

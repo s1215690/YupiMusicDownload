@@ -43,8 +43,29 @@ class LibraryRepository(private val ctx: Context) {
         try { CloudBackup.autoBackupAsync(ctx, json) } catch (t: Throwable) {}
     }
 
-    /** 匯出整個音樂庫（JSON 字串）—— 給「設定 → 備份音樂庫」用 */
-    fun exportJson(): String = gson.toJson(_data.value)
+    /**
+     * 匯出整個音樂庫（JSON 字串）—— 給「設定 → 備份音樂庫」同雲端備份用。
+     *
+     * 每首歌都會連**下載連結**（YouTube URL）一齊寫出去，換機／重裝之後
+     * 就算音檔冇了，都查得返原本係邊條片、可以重新下載。
+     * 只係清單，唔含任何音檔。
+     */
+    fun exportJson(): String {
+        val d = _data.value
+        val root = com.google.gson.JsonObject()
+        val arr = com.google.gson.JsonArray()
+        d.tracks.forEach { t ->
+            val o = gson.toJsonTree(t).asJsonObject
+            o.addProperty("url", youtubeUrl(t.videoId))
+            arr.add(o)
+        }
+        root.add("tracks", arr)
+        root.add("folders", gson.toJsonTree(d.folders))
+        root.addProperty("exportedAt", System.currentTimeMillis())
+        root.addProperty("app", "TubeTune")
+        root.addProperty("note", "只含歌單／資料夾／歌詞／下載連結，不含音檔")
+        return gson.toJson(root)
+    }
 
     /**
      * 由備份 JSON 還原整個音樂庫（連資料夾分類、未下載的串流曲目、AI 歌詞）。
@@ -247,5 +268,8 @@ class LibraryRepository(private val ctx: Context) {
     companion object {
         const val DEFAULT_FOLDER = "未分類"
 
+        /** 由 videoId 砌返 YouTube 連結（同一個 id 永遠對應同一條片） */
+        fun youtubeUrl(videoId: String): String =
+            if (videoId.isBlank()) "" else "https://www.youtube.com/watch?v=" + videoId
     }
 }
