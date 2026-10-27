@@ -483,6 +483,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (player.state.value?.track?.videoId == track.videoId) player.stop()
     }
 
+    /** 批量刪除（全選／多選）：已下載的一併刪檔，未下載的只從資料夾移除 */
+    fun deleteTracks(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        tracks.forEach { deleteTrack(it) }
+    }
+
     fun handleSharedText(intent: Intent?) {
         val text = intent?.getStringExtra(Intent.EXTRA_TEXT) ?: return
         val id = YoutubeService.videoIdOf(text)

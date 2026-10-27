@@ -30,6 +30,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDownload
@@ -114,6 +118,7 @@ fun LibraryScreen(vm: AppViewModel) {
     var folderDialog by remember { mutableStateOf(false) }
     var manageFolders by remember { mutableStateOf(false) }
     var deleteConfirm by remember { mutableStateOf<Track?>(null) }
+    var bulkDelete by remember { mutableStateOf<List<Track>>(emptyList()) }
     var selectionMode by remember { mutableStateOf(false) }
     val selected = remember { mutableStateListOf<String>() }
     var scanMsg by remember { mutableStateOf<String?>(null) }
@@ -165,6 +170,9 @@ fun LibraryScreen(vm: AppViewModel) {
     }
 
     val tracksOf = { name: String -> libData.tracks.filter { it.folder == name } }
+    // 多選動作的對象：全部時＝所有資料夾的曲目；否則＝當前資料夾
+    val visibleTracks = if (folder == null) folderNames.flatMap { tracksOf(it) } else tracksOf(folder!!)
+    val selectedTracks = visibleTracks.filter { selected.contains(it.videoId) }
     val activeIds = downloads.filter { it.status in ACTIVE }.map { it.videoId }.toSet()
 
     Column(Modifier.fillMaxSize()) {
@@ -260,8 +268,10 @@ fun LibraryScreen(vm: AppViewModel) {
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = cardBorder()
             ) {
+                // 一定要包 Column：Surface 嘅 content 係 Box，兩個 Row 直接放會疊埋一齊
+                Column {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -269,17 +279,63 @@ fun LibraryScreen(vm: AppViewModel) {
                         Modifier.weight(1f),
                         style = MaterialTheme.typography.titleSmall
                     )
-                    TextButton(onClick = { selected.clear() }) { Text("全不選") }
+                    TextButton(onClick = {
+                        if (visibleTracks.isNotEmpty() && selected.size >= visibleTracks.size) {
+                            selected.clear()
+                        } else {
+                            selected.clear()
+                            selected.addAll(visibleTracks.map { it.videoId })
+                        }
+                    }) {
+                        Text(if (visibleTracks.isNotEmpty() && selected.size >= visibleTracks.size) "全不選" else "全選")
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Button(
                         onClick = {
-                            val list = folderNames.flatMap { tracksOf(it) }
-                            vm.downloadTracks(list.filter { selected.contains(it.videoId) })
+                            vm.downloadTracks(selectedTracks)
                             selectionMode = false
                             selected.clear()
                         },
                         enabled = selected.isNotEmpty(),
-                        shape = RoundedCornerShape(14.dp)
-                    ) { Text("下載") }
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp)
+                    ) {
+                        Icon(Icons.Filled.Download, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("下載")
+                    }
+                    OutlinedButton(
+                        onClick = { shareTracks(context, selectedTracks) },
+                        enabled = selectedTracks.any { it.uri.startsWith("content://") },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp)
+                    ) {
+                        Icon(Icons.Filled.Share, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("分享")
+                    }
+                    OutlinedButton(
+                        onClick = { bulkDelete = selectedTracks },
+                        enabled = selected.isNotEmpty(),
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                    ) {
+                        Icon(Icons.Filled.Delete, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("刪除")
+                    }
+                }
                 }
             }
         }
@@ -334,6 +390,11 @@ fun LibraryScreen(vm: AppViewModel) {
                     onDownloadAll = { vm.downloadFolder(folder!!) },
                     onDownloadOne = { vm.downloadTracks(listOf(it)) },
                     onToggleSource = { vm.togglePlaySource(folder!!) },
+                    onSelectAll = {
+                        selectionMode = true
+                        selected.clear()
+                        selected.addAll(tracksOf(folder!!).map { it.videoId })
+                    },
                     sourceIsStream = Prefs.playSourceForFolder(context, folder!!) == PlaySource.STREAM
                 )
             }
@@ -441,6 +502,54 @@ fun LibraryScreen(vm: AppViewModel) {
             }
         )
     }
+
+    // ---- 批量刪除（全選／多選後） ----
+    if (bulkDelete.isNotEmpty()) {
+        val withFiles = bulkDelete.count { it.uri.startsWith("content://") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { bulkDelete = emptyList() },
+            title = { Text("刪除 " + bulkDelete.size + " 首？") },
+            text = {
+                Text(
+                    if (withFiles > 0)
+                        "其中 " + withFiles + " 首已下載，手機上的檔案會一併刪除；其餘只會從資料夾移除。"
+                    else
+                        "這些歌還未下載，只會從資料夾移除，不會刪除任何檔案。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteTracks(bulkDelete)
+                    selectionMode = false
+                    selected.clear()
+                    bulkDelete = emptyList()
+                }) { Text("刪除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { bulkDelete = emptyList() }) { Text("取消") }
+            }
+        )
+    }
+}
+
+/** 分享已下載的歌曲（MediaStore content:// URI 授權給其他 App 讀取） */
+private fun shareTracks(context: android.content.Context, tracks: List<Track>) {
+    val uris = tracks
+        .filter { it.uri.startsWith("content://") }
+        .map { android.net.Uri.parse(it.uri) }
+    if (uris.isEmpty()) {
+        android.widget.Toast.makeText(context, "選中的歌未下載，沒有檔案可分享", android.widget.Toast.LENGTH_SHORT).show()
+        return
+    }
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+        type = "audio/*"
+        putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, ArrayList(uris))
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching { context.startActivity(android.content.Intent.createChooser(intent, "分享歌曲")) }
+        .onFailure {
+            android.widget.Toast.makeText(context, "沒有 App 可以接收分享", android.widget.Toast.LENGTH_SHORT).show()
+        }
 }
 
 /* ---------------- 資料夾總覽（卡片格） ---------------- */
@@ -613,6 +722,7 @@ private fun FolderTracks(
     onDownloadAll: () -> Unit,
     onDownloadOne: (Track) -> Unit,
     onToggleSource: () -> Unit,
+    onSelectAll: () -> Unit,
     sourceIsStream: Boolean
 ) {
     val missing = tracks.count { it.uri.isBlank() }
@@ -647,6 +757,21 @@ private fun FolderTracks(
                         }
                         Spacer(Modifier.width(8.dp))
                         if (tracks.isNotEmpty()) {
+                            // 多選入口：一次過全選再分享／刪除（唔需要逐首長按）
+                            IconButton(
+                                onClick = onSelectAll,
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Checklist, "全選／多選",
+                                    Modifier.size(21.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
                             GradientCircleButton(46, 24, Icons.Filled.PlayArrow, "播放整個資料夾") {
                                 onClickTrack(tracks.first())
                             }
