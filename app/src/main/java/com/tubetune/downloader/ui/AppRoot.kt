@@ -141,44 +141,41 @@ private fun FloatingNavBar(selected: Int, onSelect: (Int) -> Unit) {
         shadowElevation = 14.dp
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(7.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TABS.forEachIndexed { i, item ->
                 val sel = selected == i
-                val alpha by animateFloatAsState(if (sel) 1f else 0.85f, label = "nav")
-                Box(
+                val tint = if (sel) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+                // 標準底部導覽：圖示 24dp + 永遠顯示文字（唔會只有 icon 而睇落好細）
+                Column(
                     Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent)
-                        .clickable { onSelect(i) }
-                        .padding(vertical = 9.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            item.icon,
-                            contentDescription = item.label,
-                            modifier = Modifier.size(21.dp),
-                            tint = if (sel) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
-                            }
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                            else Color.Transparent
                         )
-                        if (sel) {
-                            Spacer(Modifier.width(7.dp))
-                            Text(
-                                item.label,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        }
-                    }
+                        .clickable { onSelect(i) }
+                        .padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        item.icon,
+                        contentDescription = item.label,
+                        modifier = Modifier.size(24.dp),
+                        tint = tint
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        item.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = tint,
+                        fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1
+                    )
                 }
             }
         }
