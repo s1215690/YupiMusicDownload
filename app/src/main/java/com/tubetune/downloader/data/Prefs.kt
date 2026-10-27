@@ -45,6 +45,24 @@ object Prefs {
             .putInt("ktv_gain_db", db.coerceIn(0, 30)).apply()
     }
 
+    /** 歌詞字級（sp） */
+    fun lyricsFontSp(context: Context): Int =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getInt("lyrics_font_sp", 16)
+
+    fun setLyricsFontSp(context: Context, sp: Int) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putInt("lyrics_font_sp", sp.coerceIn(12, 32)).apply()
+    }
+
+    /** 歌詞自動滾動速度（dp/秒） */
+    fun lyricsSpeedDp(context: Context): Int =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getInt("lyrics_speed_dp", 20)
+
+    fun setLyricsSpeedDp(context: Context, dp: Int) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putInt("lyrics_speed_dp", dp.coerceIn(4, 90)).apply()
+    }
+
     /** DeepSeek API Key（只存本機，不會上傳） */
     fun deepSeekKey(context: Context): String =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("deepseek_key", "") ?: ""

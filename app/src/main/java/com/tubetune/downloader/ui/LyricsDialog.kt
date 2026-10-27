@@ -1,6 +1,7 @@
 package com.tubetune.downloader.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,23 +35,31 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.tubetune.downloader.AppViewModel
+import com.tubetune.downloader.data.Prefs
 
 /**
  * 歌詞對話框：先由真歌詞庫（LRCLIB／酷狗）搵；搵唔到才可選擇 AI 推測，並明確標示可能不準。
@@ -64,6 +75,35 @@ fun LyricsDialog(vm: AppViewModel) {
     val prefill = remember(state.track.videoId) { vm.lyricsRepo.previewQuery(state.track) }
     var manualTitle by remember(state.track.videoId) { mutableStateOf(prefill.first) }
     var manualArtist by remember(state.track.videoId) { mutableStateOf(prefill.second) }
+
+    // 字體大小 / 自動滾動 / 速度（記住上次設定）
+    val ctx = LocalContext.current
+    val density = LocalDensity.current
+    var fontSp by remember { mutableIntStateOf(Prefs.lyricsFontSp(ctx)) }
+    var speedDp by remember { mutableIntStateOf(Prefs.lyricsSpeedDp(ctx)) }
+    var autoScroll by remember { mutableStateOf(false) }
+    val lyricScroll = rememberScrollState()
+
+    // 自動滾動：逐 frame 推進，捲到底自動停
+    LaunchedEffect(autoScroll, speedDp, state.text) {
+        if (!autoScroll) return@LaunchedEffect
+        val pxPerSec = speedDp * density.density
+        var last = withFrameNanos { it }
+        while (autoScroll) {
+            val now = withFrameNanos { it }
+            val dt = (now - last) / 1_000_000_000f
+            last = now
+            if (dt > 0f) {
+                val next = lyricScroll.value + (pxPerSec * dt).toInt().coerceAtLeast(1)
+                if (lyricScroll.maxValue > 0 && next >= lyricScroll.maxValue) {
+                    lyricScroll.scrollTo(lyricScroll.maxValue)
+                    autoScroll = false
+                } else if (lyricScroll.maxValue > 0) {
+                    lyricScroll.scrollTo(next)
+                }
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = { vm.closeLyrics() },
@@ -135,7 +175,13 @@ fun LyricsDialog(vm: AppViewModel) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .heightIn(max = if (showManual) 230.dp else 380.dp)
+                        .heightIn(
+                            max = when {
+                                showManual -> 200.dp
+                                autoScroll -> 250.dp
+                                else -> 320.dp
+                            }
+                        )
                         .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
@@ -154,13 +200,14 @@ fun LyricsDialog(vm: AppViewModel) {
                         }
 
                         !state.text.isNullOrBlank() -> Column(
-                            Modifier.verticalScroll(rememberScrollState())
+                            Modifier.verticalScroll(lyricScroll)
                         ) {
                             SelectionContainer {
                                 Text(
                                     state.text.orEmpty(),
                                     style = MaterialTheme.typography.bodyMedium,
-                                    lineHeight = 25.sp
+                                    fontSize = fontSp.sp,
+                                    lineHeight = (fontSp * 1.65f).sp
                                 )
                             }
                         }
@@ -175,6 +222,88 @@ fun LyricsDialog(vm: AppViewModel) {
                                 "按下面「找歌詞」由 LRCLIB／酷狗歌詞庫搜尋",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // ---- 字體 / 自動滾動 / 速度 ----
+                if (!state.text.isNullOrBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        SmallPill("A−") {
+                            if (fontSp > 12) {
+                                fontSp -= 2
+                                Prefs.setLyricsFontSp(ctx, fontSp)
+                            }
+                        }
+                        Text(
+                            fontSp.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        SmallPill("A＋") {
+                            if (fontSp < 32) {
+                                fontSp += 2
+                                Prefs.setLyricsFontSp(ctx, fontSp)
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        Row(
+                            Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (autoScroll) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceContainerHighest
+                                )
+                                .clickable { autoScroll = !autoScroll }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (autoScroll) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = if (autoScroll) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                if (autoScroll) "滾動中" else "自動滾動",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (autoScroll) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (autoScroll) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "速度",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Slider(
+                                value = speedDp.toFloat(),
+                                onValueChange = {
+                                    speedDp = it.toInt().coerceIn(4, 90)
+                                    Prefs.setLyricsSpeedDp(ctx, speedDp)
+                                },
+                                valueRange = 4f..90f,
+                                modifier = Modifier.weight(1f).padding(horizontal = 10.dp)
+                            )
+                            Text(
+                                speedDp.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(20.dp)
                             )
                         }
                     }
@@ -324,5 +453,25 @@ fun LyricsDialog(vm: AppViewModel) {
                 }
             }
         }
+    }
+}
+
+
+/** 細小的膠囊按鈕（A− / A＋） */
+@Composable
+private fun SmallPill(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
