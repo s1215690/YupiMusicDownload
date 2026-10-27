@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -81,6 +82,7 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
     var floating by remember { mutableStateOf(Prefs.floatingPlayer(context)) }
     var apiKey by remember { mutableStateOf(Prefs.deepSeekKey(context)) }
     var showKey by remember { mutableStateOf(false) }
+    var ktvGain by remember { mutableStateOf(Prefs.ktvGainDb(context)) }
     var backupMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val hasOverlay = Settings.canDrawOverlays(context)
@@ -247,6 +249,44 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                     }
                 }
             }
+        }
+
+        SectionTitle("KTV 錄音")
+        SettingCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Mic, null, Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("錄音音量（增益）", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "接藍牙音響時，手機麥克風錄的是環境聲（你嘅人聲＋音響外放）。錄出來太細聲就調高",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(0, 6, 12, 18).forEach { db ->
+                    ChoicePill(
+                        if (db == 0) "原聲" else "+" + db + "dB",
+                        ktvGain == db,
+                        Modifier.weight(1f)
+                    ) {
+                        ktvGain = db
+                        Prefs.setKtvGainDb(context, db)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "系統另外會自動補最多 +18dB 到接近滿音量，並用軟限幅避免爆音。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
         }
 
         SectionTitle("懸浮播放視窗")

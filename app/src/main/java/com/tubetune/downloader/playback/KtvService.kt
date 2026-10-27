@@ -21,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.tubetune.downloader.MainActivity
 import com.tubetune.downloader.data.MediaSaver
+import com.tubetune.downloader.data.Prefs
 import com.tubetune.downloader.data.Track
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -100,11 +101,25 @@ class KtvService : Service() {
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             ).coerceAtLeast(8192)
 
+            // 優先用 UNPROCESSED（完全不經 AEC/NS/AGC，最適合收「藍牙音響外放 + 人聲」），
+            // 裝置唔支援就退回 VOICE_RECOGNITION
+            val wantUnprocessed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+            var src = if (wantUnprocessed) MediaRecorder.AudioSource.UNPROCESSED
+            else MediaRecorder.AudioSource.VOICE_RECOGNITION
             micRecord = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION, // 不做回聲消除：外放的音樂才錄得到
-                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                src, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT, minBuf * 4
             )
+            if (micRecord!!.state != AudioRecord.STATE_INITIALIZED) {
+                Log.w(TAG, "begin: UNPROCESSED 不可用（state=${micRecord!!.state}），改用 VOICE_RECOGNITION")
+                runCatching { micRecord!!.release() }
+                src = MediaRecorder.AudioSource.VOICE_RECOGNITION
+                micRecord = AudioRecord(
+                    src, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, minBuf * 4
+                )
+            }
+            Log.i(TAG, "begin: audioSource=$src (UNPROCESSED=${MediaRecorder.AudioSource.UNPROCESSED})")
             // 保險：若裝置在麥克風上掛了 AEC/NS，關閉它們
             try {
                 android.media.audiofx.AcousticEchoCanceler.create(micRecord!!.audioSessionId)?.enabled = false
@@ -251,6 +266,49 @@ class KtvService : Service() {
         val totalFrames = micLen / 2
         if (totalFrames == 0L) return null
 
+        // ---- 第一輪：量原檔峰值，決定要補多少增益 ----
+        // 藍牙音響外放 + 手機麥克風收環境聲，原始電平通常好低（-30dBFS 左右），
+        // 單靠固定倍數唔夠 → 除了使用者設定的增益，再自動補到目標峰值（最多再 +18dB）
+        var peak = 0
+        var sumSq = 0.0
+        var counted = 0L
+        runCatching {
+            java.io.DataInputStream(vF.inputStream().buffered()).use { input ->
+                val bytes = ByteArray(CHUNK_BYTES)
+                while (true) {
+                    val n = input.read(bytes)
+                    if (n <= 0) break
+                    var i = 0
+                    while (i + 1 < n) {
+                        val s = ((bytes[i + 1].toInt() shl 8) or (bytes[i].toInt() and 0xFF)).toShort().toInt()
+                        val a = kotlin.math.abs(s)
+                        if (a > peak) peak = a
+                        sumSq += (s.toDouble() * s)
+                        counted++
+                        i += 2
+                    }
+                }
+            }
+        }
+        val userGain = Math.pow(10.0, Prefs.ktvGainDb(this) / 20.0)
+        var autoGain = 1.0
+        if (peak > 0) {
+            val afterUser = peak * userGain
+            val target = 0.85 * 32767.0
+            if (afterUser < target) autoGain = (target / afterUser).coerceAtMost(8.0) // 上限 +18dB
+        }
+        val totalGain = userGain * autoGain
+        val rmsDb = if (counted > 0) 20.0 * Math.log10(
+            (Math.sqrt(sumSq / counted) / 32768.0).coerceAtLeast(1e-9)
+        ) else -120.0
+        Log.i(
+            TAG,
+            "micToWav: peak=" + peak + " rmsDb=" + String.format("%.1f", rmsDb) +
+                " userGain=" + String.format("%.2f", userGain) +
+                " autoGain=" + String.format("%.2f", autoGain) +
+                " total=" + String.format("%.2f", totalGain) + " frames=" + totalFrames
+        )
+
         val dataBytes = totalFrames * 2     // 單聲道 16bit
         java.io.RandomAccessFile(out, "rw").use { raf ->
             // WAV header
@@ -286,7 +344,7 @@ class KtvService : Service() {
                 java.nio.ByteBuffer.wrap(vBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(vShorts, 0, framesV)
                 var o = 0
                 for (i in 0 until framesV) {
-                    val v = (vShorts[i].toInt() * MIC_GAIN).toInt().coerceIn(-32768, 32767)
+                    val v = applyGain(vShorts[i].toInt(), totalGain)
                     outBytes[o++] = (v and 0xFF).toByte()
                     outBytes[o++] = ((v shr 8) and 0xFF).toByte()
                 }
@@ -298,6 +356,24 @@ class KtvService : Service() {
             raf.seek(0); raf.write(header, 0, 44)
         }
         return out
+    }
+
+    /**
+     * 套用增益 + 軟限幅：0.8 全幅以下線性放大（唔失真），超過就壓縮，
+     * 避免大聲唱歌時爆音（硬 clip 會拆聲）。
+     */
+    private fun applyGain(sample: Int, gain: Double): Int {
+        val x = sample * gain
+        val knee = 0.8 * 32767
+        if (x > knee) {
+            val over = (x - knee) / (32767 - knee)
+            return (knee + (32767 - knee) * Math.tanh(over)).toInt().coerceAtMost(32767)
+        }
+        if (x < -knee) {
+            val over = (-x - knee) / (32767 - knee)
+            return (-(knee + (32767 - knee) * Math.tanh(over))).toInt().coerceAtLeast(-32768)
+        }
+        return x.toInt()
     }
 
     private fun cleanupRecords() {
@@ -343,7 +419,8 @@ class KtvService : Service() {
         const val EXTRA_TITLE = "ktv_song_title"
         const val KTV_FOLDER = "KTV 錄音"
         private const val SAMPLE_RATE = 48000
-        private const val MIC_GAIN = 1.15
+        /** 第一輪量峰值時的讀取塊大小（bytes） */
+        private const val CHUNK_BYTES = 64 * 1024
 
         val isRecording = MutableStateFlow(false)
         val elapsedSec = MutableStateFlow(0)

@@ -36,6 +36,15 @@ object Prefs {
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().putBoolean("asked_audio", value).apply()
     }
 
+    /** 錄音音量（dB）：0 / 6 / 12 / 18，預設 +12（藍牙外放時用麥克風收環境聲，通常需要放大） */
+    fun ktvGainDb(context: Context): Int =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getInt("ktv_gain_db", 12)
+
+    fun setKtvGainDb(context: Context, db: Int) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putInt("ktv_gain_db", db.coerceIn(0, 30)).apply()
+    }
+
     /** DeepSeek API Key（只存本機，不會上傳） */
     fun deepSeekKey(context: Context): String =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("deepseek_key", "") ?: ""
