@@ -63,6 +63,23 @@ object Prefs {
             .putInt("lyrics_speed10", value.coerceIn(5, 600)).apply()
     }
 
+    /** 雲端備份資料夾（SAF tree URI，可揀 Google Drive／OneDrive／本機資料夾） */
+    fun backupTreeUri(context: Context): String? =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("backup_tree", null)
+
+    fun setBackupTreeUri(context: Context, uri: String?) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putString("backup_tree", uri).apply()
+    }
+
+    fun backupLastAt(context: Context): Long =
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getLong("backup_last_at", 0L)
+
+    fun setBackupLastAt(context: Context, at: Long) {
+        context.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+            .putLong("backup_last_at", at).apply()
+    }
+
     /** DeepSeek API Key（只存本機，不會上傳） */
     fun deepSeekKey(context: Context): String =
         context.getSharedPreferences(NAME, Context.MODE_PRIVATE).getString("deepseek_key", "") ?: ""

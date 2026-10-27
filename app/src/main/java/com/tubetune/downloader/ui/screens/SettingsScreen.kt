@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Backup
@@ -54,6 +55,7 @@ import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -69,6 +71,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.tubetune.downloader.AppViewModel
 import com.tubetune.downloader.data.Prefs
+import com.tubetune.downloader.data.CloudBackup
 import com.tubetune.downloader.playback.PlaybackService
 import com.tubetune.downloader.ui.SectionTitle
 import com.tubetune.downloader.ui.cardBorder
@@ -84,8 +87,26 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
     var showKey by remember { mutableStateOf(false) }
     var ktvGain by remember { mutableStateOf(Prefs.ktvGainDb(context)) }
     var backupMsg by remember { mutableStateOf<String?>(null) }
+    var cloudFolder by remember { mutableStateOf(CloudBackup.folderName(context)) }
+    var cloudLast by remember { mutableLongStateOf(Prefs.backupLastAt(context)) }
+    var cloudMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val hasOverlay = Settings.canDrawOverlays(context)
+
+    // 揀一次 Google Drive（或任何）資料夾，之後自動把「清單」寫上去
+    val pickCloudFolder = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val persisted = CloudBackup.choose(context, uri)
+        cloudFolder = CloudBackup.folderName(context)
+        cloudMsg = if (persisted) "已連結，之後自動備份" else "已記住位置（此資料夾不支援長期授權）"
+        // 即刻做第一次
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching { CloudBackup.writeNow(context, vm.exportLibrary()) } }
+            cloudLast = Prefs.backupLastAt(context)
+        }
+    }
 
     val createDoc = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -375,6 +396,96 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                 color = MaterialTheme.colorScheme.outline
             )
             backupMsg?.let { msg ->
+                Spacer(Modifier.height(6.dp))
+                Text(msg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        SectionTitle("雲端備份（Google Drive）")
+        SettingCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.CloudUpload, null, Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("只傳歌單，唔上載歌曲", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "資料夾分類、歌單、歌詞 → 一個 JSON 檔",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            if (cloudFolder == null) {
+                Button(
+                    onClick = { pickCloudFolder.launch(null) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Filled.CloudUpload, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("選擇 Google Drive 資料夾")
+                }
+            } else {
+                Text(
+                    "已連結：" + cloudFolder,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "上次備份：" + if (cloudLast > 0L) android.text.format.DateFormat
+                        .format("yyyy-MM-dd HH:mm", cloudLast).toString() else "未曾備份",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                val res = withContext(Dispatchers.IO) {
+                                    runCatching { CloudBackup.writeNow(context, vm.exportLibrary()) }
+                                }
+                                cloudLast = Prefs.backupLastAt(context)
+                                cloudMsg = res.getOrNull()?.let { "已備份到雲端" }
+                                    ?: ("失敗：" + (res.exceptionOrNull()?.message ?: "未知錯誤"))
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Filled.CloudUpload, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("立即備份")
+                    }
+                    OutlinedButton(
+                        onClick = { pickCloudFolder.launch(null) },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) { Text("更換資料夾") }
+                }
+                TextButton(
+                    onClick = {
+                        CloudBackup.clear(context)
+                        cloudFolder = null
+                        cloudLast = 0L
+                        cloudMsg = "已解除雲端備份"
+                    }
+                ) { Text("解除連結", color = MaterialTheme.colorScheme.error) }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "在檔案選擇器揀 Google 雲端硬碟嘅資料夾（揀一次就記住）。" +
+                    "之後每次加減歌、改分類、存歌詞，20 秒內自動覆寫 tubetune-backup.json。" +
+                    "換機時用「還原」選返雲端嗰個檔即可；音檔永遠唔會上傳。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+            cloudMsg?.let { msg ->
                 Spacer(Modifier.height(6.dp))
                 Text(msg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }

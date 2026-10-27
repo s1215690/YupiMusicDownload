@@ -10,11 +10,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
-class LibraryRepository(private val context: Context) {
+class LibraryRepository(private val ctx: Context) {
 
     private val gson = Gson()
     private val file: File
-        get() = File(context.filesDir, "library.json")
+        get() = File(ctx.filesDir, "library.json")
 
     private val _data = MutableStateFlow(load())
     val data: StateFlow<LibraryData> = _data.asStateFlow()
@@ -37,7 +37,10 @@ class LibraryRepository(private val context: Context) {
     }
 
     private fun save() {
-        try { file.writeText(gson.toJson(_data.value)) } catch (t: Throwable) {}
+        val json = gson.toJson(_data.value)
+        try { file.writeText(json) } catch (t: Throwable) {}
+        // 有設定雲端備份資料夾就自動同步「清單」（唔含音檔），背景寫入
+        try { CloudBackup.autoBackupAsync(ctx, json) } catch (t: Throwable) {}
     }
 
     /** 匯出整個音樂庫（JSON 字串）—— 給「設定 → 備份音樂庫」用 */
@@ -169,7 +172,7 @@ class LibraryRepository(private val context: Context) {
 
         val found = ArrayList<Track>()
         try {
-            context.contentResolver.query(collection, projection, selection, args, null)?.use { c ->
+            ctx.contentResolver.query(collection, projection, selection, args, null)?.use { c ->
                 val iId = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val iName = c.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
                 val iTitle = c.getColumnIndex(MediaStore.Audio.Media.TITLE)

@@ -52,6 +52,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,9 +87,14 @@ fun LyricsDialog(vm: AppViewModel) {
     var autoScroll by remember { mutableStateOf(false) }
     val lyricScroll = rememberScrollState()
 
+    // 只用來「觀察」手指：Initial pass 讀事件但唔消費，令 ScrollView 照樣收到拖動手勢
+    var touchingLyrics by remember { mutableStateOf(false) }
+    var touchEndAt by remember { mutableStateOf(0L) }
+
     // 自動滾動：逐 frame 推進，捲到底自動停。
     // 注意一定要用浮點累加器：若每 frame 直接 toInt() 再 coerceAtLeast(1)，
     // 慢速（例如 3dp/s）會被逼成每 frame 1px ≈ 60px/s，變成「最細都太快」。
+    // 手指按住／放開後 1.2 秒內唔推，令手動拖拉唔會同自動滾動打架，放手後會自動接返。
     LaunchedEffect(autoScroll, speed10, state.text) {
         if (!autoScroll) return@LaunchedEffect
         val pxPerSec = (speed10 / 10f) * density.density
@@ -97,16 +104,17 @@ fun LyricsDialog(vm: AppViewModel) {
             val now = withFrameNanos { it }
             val dt = (now - last) / 1_000_000_000f
             last = now
-            if (dt > 0f) {
-                accumulated += pxPerSec * dt
-                val step = accumulated.toInt()
-                if (step >= 1) {
-                    accumulated -= step
-                    if (lyricScroll.maxValue > 0) {
-                        val target = (lyricScroll.value + step).coerceAtMost(lyricScroll.maxValue)
-                        lyricScroll.scrollTo(target)
-                        if (target >= lyricScroll.maxValue) autoScroll = false
-                    }
+            val userBusy = touchingLyrics || (System.currentTimeMillis() - touchEndAt) < 1200L
+            if (userBusy || dt <= 0f) continue
+            // 到底就停住但唔熄開關：用戶拉返上去會自動繼續，
+            // 唔會出現「拖拉一次就要重新按自動滾動」
+            if (lyricScroll.maxValue > 0 && lyricScroll.value >= lyricScroll.maxValue) continue
+            accumulated += pxPerSec * dt
+            val step = accumulated.toInt()
+            if (step >= 1) {
+                accumulated -= step
+                if (lyricScroll.maxValue > 0) {
+                    lyricScroll.scrollTo((lyricScroll.value + step).coerceAtMost(lyricScroll.maxValue))
                 }
             }
         }
@@ -190,6 +198,21 @@ fun LyricsDialog(vm: AppViewModel) {
                             }
                         )
                         .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))
+                        // 只觀察手指（唔消費事件），令內容照樣可以拖拉；
+                        // 同時通知自動滾動讓路，放手 1.2 秒後自動接返
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                                    val down = e.changes.any { it.pressed }
+                                    if (down && !touchingLyrics) touchingLyrics = true
+                                    if (!down && touchingLyrics) {
+                                        touchingLyrics = false
+                                        touchEndAt = System.currentTimeMillis()
+                                    }
+                                }
+                            }
+                        }
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     when {
