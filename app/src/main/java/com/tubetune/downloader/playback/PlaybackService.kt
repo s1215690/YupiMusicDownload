@@ -92,6 +92,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        android.util.Log.i("TubeTune", "PlaybackService onCreate")
         appContext = applicationContext
         val player = buildPlayer()
         mediaSession = MediaSession.Builder(this, player).build()
@@ -109,6 +110,10 @@ class PlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
+        android.util.Log.i(
+            "TubeTune",
+            "onTaskRemoved items=" + (player?.mediaItemCount ?: -1) + " state=" + player?.playbackState
+        )
         // 只有在「完全沒有媒體內容」時才停止 service；
         // 否則保留（例如使用者回到其他 App、稍後再回來繼續控制）
         if (player == null || player.mediaItemCount == 0 || player.playbackState == Player.STATE_IDLE) {
@@ -117,6 +122,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        android.util.Log.i("TubeTune", "PlaybackService onDestroy（背景播放結束／被系統回收）")
         hideOverlay()
         serviceInstance = null
         playerHolder = null
@@ -142,8 +148,10 @@ class PlaybackService : MediaSessionService() {
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(DefaultDataSource.Factory(this, httpFactory))
             )
-            // 播放時持有 WakeLock：防止 CPU 休眠導致本地播放放到一半卡住
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            // 播放時持有 WakeLock：防止 CPU 休眠導致本地播放放到一半卡住。
+            // 用 NETWORK 模式：串流（YouTube）要同時鎖住 Wi-Fi，否則螢幕關掉後
+            // Doze 會斷流 → 聽一分鐘就「停咗」，再按播放亦冇反應。
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
@@ -357,6 +358,58 @@ fun SettingsScreen(vm: AppViewModel, onThemeChange: (String) -> Unit) {
                     } catch (t: Throwable) {
                     }
                 }) { Text("前往授權") }
+            }
+        }
+
+        SectionTitle("背景播放穩定")
+        SettingCard {
+            val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            val ignoring = pm.isIgnoringBatteryOptimizations(context.packageName)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.BatterySaver, null, Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (ignoring) "已關閉電池最佳化（背景播放最穩）" else "電池最佳化仍開著",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        "HyperOS／MIUI 會喺螢幕關掉一段時間後殺背景播放，聽一兩分鐘就停",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
+            if (!ignoring) {
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = {
+                        try {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    android.net.Uri.parse("package:" + context.packageName)
+                                )
+                            )
+                        } catch (t: Throwable) {
+                            // 部分 ROM 冇這個 activity → 打開電池最佳化清單
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Filled.BatterySaver, null, Modifier.size(17.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("關閉電池最佳化")
+                }
             }
         }
 

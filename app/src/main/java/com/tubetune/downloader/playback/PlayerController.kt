@@ -36,6 +36,23 @@ class PlayerController(private val context: Context) {
     private val _state = MutableStateFlow<PlayerState?>(null)
     val state: StateFlow<PlayerState?> = _state.asStateFlow()
 
+    /** 最後一次播放錯誤（UI 可以顯示「重試」） */
+    private val _lastError = MutableStateFlow<String?>(null)
+    val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    /** 緩衝中：ExoPlayer 緩衝時 isPlaying 會變 false，UI 唔應該當成「已暫停」 */
+    private val _buffering = MutableStateFlow(false)
+    val buffering: StateFlow<Boolean> = _buffering.asStateFlow()
+
+    // 記住上次播咩，方便系統回收 service／出錯之後原地恢復
+    private var lastTrack: Track? = null
+    private var lastPlaylist: List<Track> = emptyList()
+    private var lastUrls: Map<String, String>? = null
+
+    /** 串流卡住 watchdog：playWhenReady 但一直緩衝唔前進 */
+    private var stallSince = 0L
+    private var watchdog: Job? = null
+
     private val _queue = MutableStateFlow<List<Track>>(emptyList())
     val queue: StateFlow<List<Track>> = _queue.asStateFlow()
 
@@ -44,11 +61,23 @@ class PlayerController(private val context: Context) {
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying) startTicker()
+            if (isPlaying) {
+                startTicker()
+                stallSince = 0L
+            }
             update()
         }
 
+        /** 記錄「為咩停」：焦點被搶 / 使用者按暫停 / 出錯 —— 方便日後查真實原因 */
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            android.util.Log.i("TubeTune", "playWhenReady=" + playWhenReady + " reason=" + reason)
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS) {
+                android.util.Log.i("TubeTune", "→ 音訊焦點被其他 App 取走（例如播片／通話）")
+            }
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
+            _buffering.value = playbackState == Player.STATE_BUFFERING
             if (playbackState == Player.STATE_ENDED) {
                 ticker?.cancel()
                 update()
@@ -56,10 +85,18 @@ class PlayerController(private val context: Context) {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            stallSince = 0L
             update()
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // 保住錯誤資訊：串流連結過期／403／斷網都會嚟到呢度，
+            // 之前只係 update()，所以 UI 睇落「暫停咗」但完全冇提示、亦播唔返。
+            android.util.Log.e(
+                "TubeTune", "播放錯誤 " + error.errorCodeName + "：" + error.message
+            )
+            _lastError.value = error.errorCodeName + "：" + (error.message ?: "").take(160)
+            _buffering.value = false
             update()
         }
     }
@@ -87,6 +124,10 @@ class PlayerController(private val context: Context) {
     }
 
     private fun playInternal(track: Track, playlist: List<Track>, urls: Map<String, String>?) {
+        lastTrack = track
+        lastPlaylist = playlist
+        lastUrls = urls
+        _lastError.value = null
         retrofit(15) { p ->
             try {
                 p.stop()
@@ -122,6 +163,7 @@ class PlayerController(private val context: Context) {
                 p.play()
                 _state.value = PlayerState(track, true, 0, (track.durationSeconds * 1000).coerceAtLeast(1L))
                 startTicker()
+                startWatchdog()
             } catch (t: Throwable) {
                 // 不讓播放設定失敗拖垮 UI：保留錯誤訊息但不崩潰
                 android.util.Log.e("PlayerController", "play failed", t)
@@ -130,14 +172,84 @@ class PlayerController(private val context: Context) {
         }
     }
 
+    /**
+     * 播放／暫停。
+     *
+     * 這裡修的是「突然停咗之後按 ▶ 完全冇反應」：
+     *  - 串流出錯（403／連結過期／斷網）之後 ExoPlayer 會回到 STATE_IDLE，
+     *    單純 play() 只會設定 playWhenReady，唔會重新 prepare → 睇落完全冇反應。
+     *  - 系統回收咗 PlaybackService 之後 player() 會回 null，舊寫法直接 return。
+     *  - 播到最後一首時是 STATE_ENDED，要 seekTo(0) 才播得返。
+     */
     fun toggle() {
-        val p = player() ?: return
-        if (p.isPlaying) p.pause() else {
-            if (p.playbackState == Player.STATE_ENDED) p.seekTo(0)
-            p.play()
-            startTicker()
+        val p = player()
+        if (p == null) {
+            // service 被系統回收：等它重建後用記住的清單原地恢復
+            android.util.Log.i("TubeTune", "toggle：player 未就緒，嘗試由快取恢復")
+            resumeFromCache()
+            return
         }
+        if (p.isPlaying) {
+            p.pause()
+            update()
+            return
+        }
+        when (p.playbackState) {
+            Player.STATE_IDLE -> {
+                if (p.mediaItemCount > 0) {
+                    // 重新 prepare：串流出錯後靠這一步才播得返
+                    p.prepare()
+                    p.play()
+                } else {
+                    resumeFromCache()
+                }
+            }
+            Player.STATE_ENDED -> {
+                p.seekTo(0)
+                p.play()
+            }
+            else -> p.play()
+        }
+        _lastError.value = null
+        startTicker()
+        startWatchdog()
         update()
+    }
+
+    /** 由最後一次播放的資料重建佇列（service 被回收／player 已釋放時用） */
+    private fun resumeFromCache() {
+        val t = lastTrack ?: _state.value?.track ?: return
+        val q = lastPlaylist.ifEmpty { _queue.value }
+        if (q.isEmpty()) return
+        if (q.none { it.videoId == t.videoId }) return
+        playInternal(t, q, lastUrls)
+    }
+
+    /** 串流卡死 watchdog：playWhenReady 但連續緩衝超過 20 秒 → 強制重新 prepare 一次 */
+    private fun startWatchdog() {
+        if (watchdog?.isActive == true) return
+        watchdog = scope.launch {
+            while (true) {
+                delay(3000)
+                val p = attached ?: continue
+                val stuck = p.playWhenReady && !p.isPlaying && p.playbackState != Player.STATE_ENDED
+                if (!stuck) {
+                    stallSince = 0L
+                    continue
+                }
+                if (stallSince == 0L) stallSince = System.currentTimeMillis()
+                else if (System.currentTimeMillis() - stallSince > 20_000L) {
+                    stallSince = 0L
+                    android.util.Log.w("TubeTune", "播放卡住 20 秒，重新 prepare")
+                    try {
+                        if (p.playbackState == Player.STATE_IDLE) p.prepare() else p.prepare()
+                        p.play()
+                    } catch (t: Throwable) {
+                    }
+                    _lastError.value = "播放卡住，已自動重試"
+                }
+            }
+        }
     }
 
     fun seekTo(ms: Long) {
@@ -247,10 +359,22 @@ class PlayerController(private val context: Context) {
         val s = _state.value ?: return
         val pos = p.currentPosition.coerceAtLeast(0)
         val dur = p.duration.takeIf { it > 0 } ?: (s.track.durationSeconds * 1000).coerceAtLeast(1L)
-        _state.value = s.copy(
+        // 關鍵：ExoPlayer 換咗 media item（按下一首／自動續播）之後，state 內的 track
+        // 之前一直停留在「最初點播那首」，所以歌名／封面／歌詞全部唔會更新。
+        // 這裡每次都以播放器目前的 mediaId 為準，由佇列取回完整 Track（連歌詞）。
+        val curId = p.currentMediaItem?.mediaId
+        val track = if (curId != null && curId != s.track.videoId) {
+            _queue.value.firstOrNull { it.videoId == curId }
+                ?: p.currentMediaItem?.toTrack()
+                ?: s.track
+        } else {
+            s.track
+        }
+        _state.value = PlayerState(
+            track = track,
+            isPlaying = p.isPlaying,
             positionMs = pos,
-            durationMs = dur,
-            isPlaying = p.isPlaying
+            durationMs = dur
         )
     }
 
@@ -272,6 +396,8 @@ class PlayerController(private val context: Context) {
     fun release() {
         ticker?.cancel()
         ticker = null
+        watchdog?.cancel()
+        watchdog = null
         attached?.removeListener(playerListener)
         attached = null
         scope.coroutineContext[Job]?.cancel()
