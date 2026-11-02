@@ -37,6 +37,15 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import com.tubetune.downloader.data.Track
+import kotlinx.coroutines.delay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -294,6 +303,21 @@ fun PlayerScreen(vm: AppViewModel) {
 
             Spacer(Modifier.height(6.dp))
 
+            // 剛剛錄好的 KTV 錄音：即場試聽（離開這一頁就消失，檔案照樣已存入音樂庫）
+            val take by vm.ktvTake.collectAsState()
+            val freshTake = take?.takeIf {
+                it.downloadedAt == 0L ||
+                    System.currentTimeMillis() - it.downloadedAt < 15 * 60 * 1000L
+            }
+            freshTake?.let { recorded ->
+                RecordingTakeCard(
+                    track = recorded,
+                    onClose = { vm.clearKtvTake() },
+                    onStartPreview = { if (s.isPlaying) vm.player.toggle() }
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+
             // ---- 控制列 ----
             Row(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -346,7 +370,120 @@ fun PlayerScreen(vm: AppViewModel) {
                     )
                 }
             }
+
             Spacer(Modifier.height(22.dp))
+        }
+    }
+}
+
+
+/**
+ * 剛剛錄好的 KTV 錄音試聽卡：用一個獨立的小 ExoPlayer，唔會擾亂目前播放佇列。
+ * 只係「臨時」按鈕 —— 離開播放頁（composable 被 dispose）就自動收乾，
+ * 檔案本身照樣已經存入音樂庫「KTV 錄音」，跟原本流程一樣。
+ */
+@Composable
+private fun RecordingTakeCard(
+    track: Track,
+    onClose: () -> Unit,
+    onStartPreview: () -> Unit
+) {
+    val context = LocalContext.current
+    var playing by remember { mutableStateOf(false) }
+    var positionMs by remember { mutableLongStateOf(0L) }
+    var durationMs by remember { mutableLongStateOf(track.durationSeconds * 1000L) }
+
+    val exo = remember(track.uri) {
+        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+            setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.parse(track.uri)))
+            prepare()
+        }
+    }
+    DisposableEffect(exo) {
+        onDispose {
+            runCatching { exo.release() }
+            // 離開頁面 → 臨時按鈕消失（唔影響已儲存的檔案）
+            onClose()
+        }
+    }
+    LaunchedEffect(exo) {
+        while (true) {
+            playing = exo.isPlaying
+            positionMs = exo.currentPosition.coerceAtLeast(0)
+            if (exo.duration > 0) durationMs = exo.duration
+            if (exo.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                exo.pause()
+                exo.seekTo(0)
+            }
+            delay(250)
+        }
+    }
+
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f))
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            FilledIconButton(
+                onClick = {
+                    if (exo.isPlaying) {
+                        exo.pause()
+                    } else {
+                        onStartPreview() // 先停主播放器，避免兩邊一齊響
+                        if (exo.playbackState == androidx.media3.common.Player.STATE_ENDED) exo.seekTo(0)
+                        exo.play()
+                    }
+                },
+                modifier = Modifier.size(44.dp)
+            ) {
+                Icon(
+                    if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = "試聽剛剛錄好的錄音",
+                    Modifier.size(24.dp)
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "剛剛錄好 · 試聽",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = {
+                        if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+                    },
+                    modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    formatDuration(positionMs / 1000) + " / " + formatDuration(durationMs / 1000),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            IconButton(onClick = {
+                runCatching { exo.pause() }
+                onClose()
+            }, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Filled.Close, contentDescription = "收起試聽",
+                    Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

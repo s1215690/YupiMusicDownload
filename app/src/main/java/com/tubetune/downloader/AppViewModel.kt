@@ -91,6 +91,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val ktvElapsed: StateFlow<Int> = KtvService.elapsedSec
     val ktvError: StateFlow<String?> = KtvService.error
 
+    /** 剛剛錄好的檔案：播放頁可以即時試聽，離開頁面就清掉（檔案本身照樣已存好） */
+    val ktvTake: StateFlow<Track?> = KtvService.savedTrack
+
+    fun clearKtvTake() {
+        KtvService.savedTrack.value = null
+    }
+
     init {
         // 重裝／清除資料後：先用 Music/TubeTune/ 的索引鏡像還原（連資料夾、歌詞、串流曲目），
         // 鏡像唔存在或讀唔到，就掃描資料夾把有檔案的歌找回來
@@ -101,13 +108,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        // 錄音完成 → 自動加入音樂庫「KTV 錄音」資料夾
+        // 錄音完成 → 自動加入音樂庫「KTV 錄音」資料夾（照舊）
+        // 注意：唔可以喺呢度即刻清掉 savedTrack —— 播放頁要靠它顯示「剛剛錄好」試聽卡；
+        // 幾時清由 UI 決定（離開播放頁／開始下一次錄音）。
         viewModelScope.launch {
             KtvService.savedTrack.collect { t ->
-                if (t != null) {
-                    library.addTrack(t)
-                    KtvService.savedTrack.value = null
-                }
+                if (t != null) library.addTrack(t)
             }
         }
     }
@@ -207,6 +213,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 開始 KTV 錄音（只錄手機本體麥克風，不需任何畫面錄製授權）；錄音檔以目前播放的歌曲名命名 */
     fun startKtv() {
+        KtvService.savedTrack.value = null // 新一輪錄音：先收掉上一條試聽卡
         KtvService.start(getApplication(), player.state.value?.track?.title.orEmpty())
     }
 
