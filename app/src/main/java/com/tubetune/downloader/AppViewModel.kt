@@ -262,6 +262,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun openPlayerScreen() { _openPlayer.value = true }
     fun closePlayerScreen() { _openPlayer.value = false }
 
+    // ---- 對嘴錄影 ----
+    private val _lipSyncTrack = MutableStateFlow<Track?>(null)
+    val lipSyncTrack: StateFlow<Track?> = _lipSyncTrack.asStateFlow()
+
+    fun openLipSync(track: Track) {
+        if (track.uri.isBlank()) return
+        // 錄影期間先停音樂庫播放，免得兩段聲疊住
+        if (player.state.value?.isPlaying == true) player.toggle()
+        _lipSyncTrack.value = track
+    }
+
+    fun closeLipSync() { _lipSyncTrack.value = null }
+
     fun search(query: String) {
         if (query.isBlank()) return
         lastQuery = query.trim()

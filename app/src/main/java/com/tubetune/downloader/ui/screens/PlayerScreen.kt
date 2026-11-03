@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -313,7 +315,8 @@ fun PlayerScreen(vm: AppViewModel) {
                 RecordingTakeCard(
                     track = recorded,
                     onClose = { vm.clearKtvTake() },
-                    onStartPreview = { if (s.isPlaying) vm.player.toggle() }
+                    onStartPreview = { if (s.isPlaying) vm.player.toggle() },
+                    onLipSync = { vm.openLipSync(recorded) }
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -386,7 +389,8 @@ fun PlayerScreen(vm: AppViewModel) {
 private fun RecordingTakeCard(
     track: Track,
     onClose: () -> Unit,
-    onStartPreview: () -> Unit
+    onStartPreview: () -> Unit,
+    onLipSync: () -> Unit
 ) {
     val context = LocalContext.current
     var playing by remember { mutableStateOf(false) }
@@ -468,11 +472,24 @@ private fun RecordingTakeCard(
                     modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp))
                 )
                 Spacer(Modifier.height(3.dp))
-                Text(
-                    formatDuration(positionMs / 1000) + " / " + formatDuration(durationMs / 1000),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        formatDuration(positionMs / 1000) + " / " + formatDuration(durationMs / 1000),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(Modifier.weight(1f))
+                    // 用這條錄音拍對嘴影片
+                    FilledTonalButton(
+                        onClick = { runCatching { exo.pause() }; onLipSync() },
+                        modifier = Modifier.height(30.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
+                    ) {
+                        Icon(Icons.Filled.Videocam, null, Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("對嘴錄影", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
             IconButton(onClick = {
                 runCatching { exo.pause() }

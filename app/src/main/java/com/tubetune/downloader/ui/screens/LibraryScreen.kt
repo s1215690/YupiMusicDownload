@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -439,6 +440,13 @@ fun LibraryScreen(vm: AppViewModel) {
                     leadingIcon = { Icon(Icons.Filled.Folder, null) },
                     onClick = { menuTrack = null; moveTrack = t }
                 )
+                if (t.uri.isNotBlank()) {
+                    DropdownMenuItem(
+                        text = { Text("對嘴錄影") },
+                        leadingIcon = { Icon(Icons.Filled.Videocam, null) },
+                        onClick = { menuTrack = null; vm.openLipSync(t) }
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("複製下載連結") },
                     leadingIcon = { Icon(Icons.Filled.Link, null) },

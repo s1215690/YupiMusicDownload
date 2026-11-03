@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.tubetune.downloader.AppViewModel
 import com.tubetune.downloader.ui.screens.DownloadsScreen
 import com.tubetune.downloader.ui.screens.LibraryScreen
+import com.tubetune.downloader.ui.screens.LipSyncScreen
 import com.tubetune.downloader.ui.screens.PlayerScreen
 import com.tubetune.downloader.ui.screens.SearchScreen
 import com.tubetune.downloader.ui.screens.SettingsScreen
@@ -127,6 +128,12 @@ fun AppRoot(vm: AppViewModel, onThemeChange: (String) -> Unit) {
             exit = slideOutVertically { it }
         ) {
             PlayerScreen(vm)
+        }
+
+        // 對嘴錄影（全螢幕覆蓋）
+        val lipSync by vm.lipSyncTrack.collectAsState()
+        lipSync?.let { track ->
+            LipSyncScreen(track = track, onClose = { vm.closeLipSync() })
         }
     }
 }
