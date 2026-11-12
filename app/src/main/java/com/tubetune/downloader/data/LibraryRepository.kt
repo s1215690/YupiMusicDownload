@@ -268,8 +268,7 @@ class LibraryRepository(private val ctx: Context) {
     companion object {
         const val DEFAULT_FOLDER = "未分類"
 
-        /** 由 videoId 砌返 YouTube 連結（同一個 id 永遠對應同一條片） */
-        fun youtubeUrl(videoId: String): String =
-            if (videoId.isBlank()) "" else "https://www.youtube.com/watch?v=" + videoId
+        /** 由 videoId 砌返原本網頁連結（YouTube 連結或 SoundCloud 網址） */
+        fun youtubeUrl(videoId: String): String = YoutubeService.webUrlOf(videoId)
     }
 }

@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tubetune.downloader.data.DownloadManager
 import com.tubetune.downloader.data.LibraryRepository
+import com.tubetune.downloader.data.MusicSource
 import com.tubetune.downloader.data.LyricsRepository
 import com.tubetune.downloader.data.MediaSaver
 import com.tubetune.downloader.data.PlaySource
@@ -275,6 +276,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun closeLipSync() { _lipSyncTrack.value = null }
 
+    // ---- 搜尋來源（YouTube / SoundCloud）----
+    private val _searchSource = MutableStateFlow(MusicSource.YOUTUBE)
+    val searchSource: StateFlow<MusicSource> = _searchSource.asStateFlow()
+
+    fun setSource(source: MusicSource) {
+        if (_searchSource.value == source) return
+        _searchSource.value = source
+        _searchResults.value = emptyList()
+        nextPage = null
+        _hasMore.value = false
+        if (lastQuery.isNotBlank()) search(lastQuery) // 即刻用新來源重搜
+    }
+
     fun search(query: String) {
         if (query.isBlank()) return
         lastQuery = query.trim()
@@ -282,7 +296,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _searchError.value = null
         viewModelScope.launch {
             try {
-                val (results, page) = withContext(Dispatchers.IO) { YoutubeService.search(lastQuery, null) }
+                val (results, page) = withContext(Dispatchers.IO) { YoutubeService.search(lastQuery, null, _searchSource.value) }
                 nextPage = page
                 _hasMore.value = page != null
                 _searchResults.value = results
@@ -301,7 +315,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _searching.value = true
         viewModelScope.launch {
             try {
-                val (results, p) = withContext(Dispatchers.IO) { YoutubeService.search(lastQuery, page) }
+                val (results, p) = withContext(Dispatchers.IO) { YoutubeService.search(lastQuery, page, _searchSource.value) }
                 nextPage = p
                 _hasMore.value = p != null
                 _searchResults.value = _searchResults.value + results

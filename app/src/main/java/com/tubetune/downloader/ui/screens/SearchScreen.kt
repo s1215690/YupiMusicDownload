@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.tubetune.downloader.data.MusicSource
 import com.tubetune.downloader.AppViewModel
 import com.tubetune.downloader.data.PreviewState
 import com.tubetune.downloader.data.SearchResult
@@ -85,6 +87,7 @@ fun SearchScreen(vm: AppViewModel) {
     val previewState by vm.preview.state.collectAsState()
     val previewBusy by vm.previewBusy.collectAsState()
     val videoPreview by vm.videoPreview.collectAsState()
+    val source by vm.searchSource.collectAsState()
 
     DisposableEffect(Unit) {
         onDispose { vm.stopPreview() }
